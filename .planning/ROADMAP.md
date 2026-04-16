@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. All bookmark and read-later data survives app restarts (stored via StorageRepository to local JSON)
 **Plans**: 2 plans
 Plans:
-- [ ] 01-01-PLAN.md — StorageRepository class + BOOKMARKS_FILE constant + MainPanel wiring
+- [x] 01-01-PLAN.md — StorageRepository class + BOOKMARKS_FILE constant + MainPanel wiring
 - [ ] 01-02-PLAN.md — News tab UI: view-switch toolbar, per-card bookmark/read-later buttons, collection list view with delete
 **UI hint**: yes
 
