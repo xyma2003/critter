@@ -9,8 +9,8 @@
 
 - [x] **NEWS-01**: 用户可以收藏单条新闻（标题+链接+来源），数据持久化到本地 JSON
 - [x] **NEWS-02**: 用户可以将新闻标记为「稍后再看」，与收藏分开存储
-- [ ] **NEWS-03**: 用户可以在新闻 Tab 查看收藏列表和稍后再看列表（独立视图）
-- [ ] **NEWS-04**: 用户可以从收藏/稍后再看列表中删除条目
+- [x] **NEWS-03**: 用户可以在新闻 Tab 查看收藏列表和稍后再看列表（独立视图）
+- [x] **NEWS-04**: 用户可以从收藏/稍后再看列表中删除条目
 - [x] **NEWS-05**: 数据访问通过 StorageRepository 类封装，底层 JSON 可替换为数据库
 
 ### 天气
@@ -74,8 +74,8 @@
 |-------------|-------|--------|
 | NEWS-01 | — | Complete |
 | NEWS-02 | — | Complete |
-| NEWS-03 | — | Pending |
-| NEWS-04 | — | Pending |
+| NEWS-03 | — | Complete |
+| NEWS-04 | — | Complete |
 | NEWS-05 | — | Complete |
 | WTHR-01 | — | Pending |
 | WTHR-02 | — | Pending |

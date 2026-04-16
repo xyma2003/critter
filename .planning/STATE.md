@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 01-news-bookmarks/01-01-PLAN.md (StorageRepository)
-last_updated: "2026-04-16T12:50:38.969Z"
+status: verifying
+stopped_at: "Checkpoint: awaiting human verification of Phase 1 News Bookmarks UI"
+last_updated: "2026-04-16T13:13:23.070Z"
 last_activity: 2026-04-16
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-04-16)
 
 Phase: 01 (news-bookmarks) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-16
 
 Progress: [░░░░░░░░░░] 0%
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 
 *Updated after each plan completion*
 | Phase 01-news-bookmarks P01 | 5 | 2 tasks | 1 files |
+| Phase 01 P02 | 15 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,8 @@ Recent decisions affecting current work:
 - Roadmap: Single-file architecture (`desktop_pet.py`) continues; no module splits
 - [Phase 01-news-bookmarks]: StorageRepository uses single JSON file with top-level collection keys; add/remove/list_items interface is backend-agnostic for future SQLite migration
 - [Phase 01-news-bookmarks]: list_items sorts newest-first by saved_at ISO8601 string (lexicographically sort-safe)
+- [Phase 01]: _make_item_id defined once before the section loop to avoid re-definition on every iteration
+- [Phase 01]: View-switch sub-toolbar uses hide/show pattern (pack_forget/pack) instead of frame destroy to preserve scroll state
 
 ### Pending Todos
 
@@ -79,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-16T12:50:38.967Z
-Stopped at: Completed 01-news-bookmarks/01-01-PLAN.md (StorageRepository)
+Last session: 2026-04-16T13:13:23.068Z
+Stopped at: Checkpoint: awaiting human verification of Phase 1 News Bookmarks UI
 Resume file: None

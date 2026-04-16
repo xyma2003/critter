@@ -12,7 +12,7 @@ Four new feature areas are added to the existing 2056-line brownfield `desktop_p
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: News Bookmarks** - Users can save, review, and remove bookmarked news and "read later" items, backed by a StorageRepository layer
+- [x] **Phase 1: News Bookmarks** - Users can save, review, and remove bookmarked news and "read later" items, backed by a StorageRepository layer (completed 2026-04-16)
 - [ ] **Phase 2: Weather Tab** - A new Weather tab shows real-time and 3-day forecasts for an unlimited number of user-managed cities
 - [ ] **Phase 3: Mood System** - The pet has a living mood value that decays over time, rises from interactions, and visibly influences greetings and the floating emoji
 - [ ] **Phase 4: Custom Pet Image** - Users can upload a personal photo that replaces the default emoji in the floating window, chat avatar, and pet tab
@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 Plans:
 - [x] 01-01-PLAN.md — StorageRepository class + BOOKMARKS_FILE constant + MainPanel wiring
-- [ ] 01-02-PLAN.md — News tab UI: view-switch toolbar, per-card bookmark/read-later buttons, collection list view with delete
+- [x] 01-02-PLAN.md — News tab UI: view-switch toolbar, per-card bookmark/read-later buttons, collection list view with delete
 **UI hint**: yes
 
 ### Phase 2: Weather Tab
@@ -81,7 +81,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. News Bookmarks | 0/2 | Not started | - |
+| 1. News Bookmarks | 2/2 | Complete   | 2026-04-16 |
 | 2. Weather Tab | 0/TBD | Not started | - |
 | 3. Mood System | 0/TBD | Not started | - |
 | 4. Custom Pet Image | 0/TBD | Not started | - |
