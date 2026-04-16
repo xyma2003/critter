@@ -1643,6 +1643,15 @@ class MainPanel:
         for c in range(cols):
             grid.columnconfigure(c, weight=1)
 
+        import hashlib as _hashlib
+        import time as _time
+
+        def _make_item_id(item):
+            """Stable ID: hash of title + source."""
+            return _hashlib.md5(
+                (item.get('title', '') + item.get('source', '')).encode()
+            ).hexdigest()[:12]
+
         for idx, sec in enumerate(sections):
             col = idx % cols
             row_idx = idx // cols
@@ -1694,19 +1703,76 @@ class MainPanel:
                                      anchor='w', padx=8, pady=7)
                 title_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+                # ── 收藏 / 稍后再看 按钮 ──
+                item_id = _make_item_id(item)
+                saved_item = {
+                    'id': item_id,
+                    'title': item.get('title', ''),
+                    'link': item.get('link', ''),
+                    'source': sec.get('source', ''),
+                    'saved_at': _time.strftime('%Y-%m-%dT%H:%M:%S'),
+                }
+
+                # Check current state (already bookmarked or read-later?)
+                bm_ids = {x['id'] for x in self._storage.list_items('bookmarks')}
+                rl_ids = {x['id'] for x in self._storage.list_items('read_later')}
+                bm_icon = '📌' if item_id in bm_ids else '🔖'
+                rl_icon = '✅' if item_id in rl_ids else '⏰'
+
+                bm_btn = tk.Label(row, text=bm_icon, bg=th['BG_CARD'],
+                                  font=('Apple Color Emoji', 11), cursor='hand2',
+                                  padx=4, pady=8)
+                bm_btn.pack(side=tk.RIGHT, padx=(0, 2))
+
+                rl_btn = tk.Label(row, text=rl_icon, bg=th['BG_CARD'],
+                                  font=('Apple Color Emoji', 11), cursor='hand2',
+                                  padx=4, pady=8)
+                rl_btn.pack(side=tk.RIGHT, padx=(0, 0))
+
+                def _toggle_bookmark(e, btn=bm_btn, sid=saved_item, iid=item_id):
+                    ids = {x['id'] for x in self._storage.list_items('bookmarks')}
+                    if iid in ids:
+                        self._storage.remove('bookmarks', iid)
+                        btn.configure(text='🔖')
+                    else:
+                        self._storage.add('bookmarks', sid)
+                        btn.configure(text='📌')
+
+                def _toggle_read_later(e, btn=rl_btn, sid=saved_item, iid=item_id):
+                    ids = {x['id'] for x in self._storage.list_items('read_later')}
+                    if iid in ids:
+                        self._storage.remove('read_later', iid)
+                        btn.configure(text='⏰')
+                    else:
+                        self._storage.add('read_later', sid)
+                        btn.configure(text='✅')
+
+                bm_btn.bind('<Button-1>', _toggle_bookmark)
+                rl_btn.bind('<Button-1>', _toggle_read_later)
+
+                # Hover backgrounds for action buttons
+                bm_btn.bind('<Enter>', lambda e, b=bm_btn: b.configure(bg=th['BG_HOVER']))
+                bm_btn.bind('<Leave>', lambda e, b=bm_btn: b.configure(bg=th['BG_CARD']))
+                rl_btn.bind('<Enter>', lambda e, b=rl_btn: b.configure(bg=th['BG_HOVER']))
+                rl_btn.bind('<Leave>', lambda e, b=rl_btn: b.configure(bg=th['BG_CARD']))
+
                 if i < len(sec['items']) - 1:
                     tk.Frame(card, bg=th['DIVIDER'], height=1).pack(fill=tk.X, padx=10)
 
-                def _enter(e, r=row, n=num_canvas, l=title_lbl, rc=rank_color, ii=i):
+                def _enter(e, r=row, n=num_canvas, l=title_lbl, rc=rank_color, ii=i, bb=bm_btn, rb=rl_btn):
                     r.configure(bg=th['BG_HOVER'])
                     n.configure(bg=th['BG_HOVER'])
                     l.configure(bg=th['BG_HOVER'], fg=th['FG_ACCENT'])
+                    bb.configure(bg=th['BG_HOVER'])
+                    rb.configure(bg=th['BG_HOVER'])
                     if ii >= 3:
                         n.itemconfig(1, fill=th['FG_ACCENT'])
-                def _leave(e, r=row, n=num_canvas, l=title_lbl, rc=rank_color, ii=i):
+                def _leave(e, r=row, n=num_canvas, l=title_lbl, rc=rank_color, ii=i, bb=bm_btn, rb=rl_btn):
                     r.configure(bg=th['BG_CARD'])
                     n.configure(bg=th['BG_CARD'])
                     l.configure(bg=th['BG_CARD'], fg=th['FG_MAIN'])
+                    bb.configure(bg=th['BG_CARD'])
+                    rb.configure(bg=th['BG_CARD'])
                     if ii >= 3:
                         n.itemconfig(1, fill=rc)
                 def _click(e, link=item.get('link')):
