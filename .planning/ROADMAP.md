@@ -29,7 +29,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User can switch between the main news feed, Bookmarks list, and Read Later list without leaving the News tab
   4. User can delete any entry from the Bookmarks or Read Later list and the deletion persists after app restart
   5. All bookmark and read-later data survives app restarts (stored via StorageRepository to local JSON)
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 01-01-PLAN.md — StorageRepository class + BOOKMARKS_FILE constant + MainPanel wiring
+- [ ] 01-02-PLAN.md — News tab UI: view-switch toolbar, per-card bookmark/read-later buttons, collection list view with delete
 **UI hint**: yes
 
 ### Phase 2: Weather Tab
@@ -78,7 +81,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. News Bookmarks | 0/TBD | Not started | - |
+| 1. News Bookmarks | 0/2 | Not started | - |
 | 2. Weather Tab | 0/TBD | Not started | - |
 | 3. Mood System | 0/TBD | Not started | - |
 | 4. Custom Pet Image | 0/TBD | Not started | - |
