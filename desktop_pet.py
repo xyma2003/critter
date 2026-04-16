@@ -293,6 +293,7 @@ class MainPanel:
         self._chat_sessions = []
         self._current_session_id = None
         self._storage = StorageRepository(BOOKMARKS_FILE)
+        self._news_current_view = 'feed'   # 'feed' | 'bookmarks' | 'read_later'
 
     # ── macOS 窗口层级修复 ────────────────────────────
 
@@ -1265,6 +1266,7 @@ class MainPanel:
     def _build_news_tab(self, parent):
         th = THEMES[self._theme_mode]
         frame = tk.Frame(parent, bg=th['BG_CONTENT'])
+        self._news_tab_body = frame   # used by _build_collection_view to attach collection frames
 
         # ── 工具栏 ──
         toolbar = tk.Frame(frame, bg=th['BG_TOOLBAR'], height=44)
@@ -1366,9 +1368,25 @@ class MainPanel:
 
         tk.Frame(frame, bg=th['DIVIDER'], height=1).pack(fill=tk.X)
 
+        # ── 视图切换子工具栏 ──
+        view_bar = tk.Frame(frame, bg=th['BG_TOOLBAR'])
+        view_bar.pack(fill=tk.X)
+        self._news_view_btns = {}
+        for view_key, view_label in [('feed', '热点'), ('bookmarks', '收藏'), ('read_later', '稍后再看')]:
+            btn = tk.Label(view_bar, text=view_label,
+                           bg=th['BG_TOOLBAR'],
+                           fg=th['FG_ACCENT'] if view_key == 'feed' else th['FG_MUTED'],
+                           font=('PingFang SC', 11, 'bold') if view_key == 'feed' else ('PingFang SC', 11),
+                           cursor='hand2', padx=14, pady=6)
+            btn.pack(side=tk.LEFT)
+            btn.bind('<Button-1>', lambda e, v=view_key: self._switch_news_view(v))
+            self._news_view_btns[view_key] = btn
+        tk.Frame(frame, bg=th['DIVIDER'], height=1).pack(fill=tk.X)
+
         # ── 滚动新闻列表 ──
         canvas = tk.Canvas(frame, bg=th['BG_CONTENT'], highlightthickness=0)
-        sb = tk.Scrollbar(frame, orient='vertical', command=canvas.yview)
+        self._news_canvas_sb = tk.Scrollbar(frame, orient='vertical', command=canvas.yview)
+        sb = self._news_canvas_sb
         canvas.configure(yscrollcommand=sb.set)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -1407,6 +1425,112 @@ class MainPanel:
         s['notify_on_refresh'] = self._notify_var.get()
         save_settings(s)
         self.pet.settings = s
+
+    def _switch_news_view(self, view):
+        """Switch the News tab between 'feed', 'bookmarks', 'read_later'."""
+        self._news_current_view = view
+        th = THEMES[self._theme_mode]
+
+        # Update tab-bar button highlights
+        for v, btn in self._news_view_btns.items():
+            if v == view:
+                btn.configure(fg=th['FG_ACCENT'],
+                              font=('PingFang SC', 11, 'bold'))
+            else:
+                btn.configure(fg=th['FG_MUTED'],
+                              font=('PingFang SC', 11))
+
+        if view == 'feed':
+            # Hide collection frame, show news canvas + scrollbar
+            if hasattr(self, '_news_collection_frame'):
+                self._news_collection_frame.pack_forget()
+            self._news_canvas_sb.pack(side=tk.RIGHT, fill=tk.Y)
+            self._news_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        else:
+            # Hide news canvas + scrollbar, show collection frame
+            self._news_canvas.pack_forget()
+            self._news_canvas_sb.pack_forget()
+            self._build_collection_view(view)
+
+    def _build_collection_view(self, collection):
+        """Render the bookmark or read-later list inside the news tab."""
+        th = THEMES[self._theme_mode]
+
+        # Destroy any previous collection frame
+        if hasattr(self, '_news_collection_frame') and self._news_collection_frame.winfo_exists():
+            self._news_collection_frame.destroy()
+
+        frame = tk.Frame(self._news_tab_body, bg=th['BG_CONTENT'])
+        frame.pack(fill=tk.BOTH, expand=True)
+        self._news_collection_frame = frame
+
+        # Scrollable list
+        canvas = tk.Canvas(frame, bg=th['BG_CONTENT'], highlightthickness=0)
+        sb = tk.Scrollbar(frame, orient='vertical', command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        inner = tk.Frame(canvas, bg=th['BG_CONTENT'])
+        win_id = canvas.create_window((0, 0), window=inner, anchor='nw')
+        inner.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.bind('<Configure>', lambda e: canvas.itemconfig(win_id, width=e.width))
+
+        def _scroll(e):
+            if abs(e.delta) <= 10:
+                canvas.yview_scroll(-e.delta, 'units')
+            else:
+                canvas.yview_scroll(-1 * (e.delta // 120), 'units')
+        canvas.bind('<MouseWheel>', _scroll)
+        inner.bind('<MouseWheel>', _scroll)
+
+        items = self._storage.list_items(collection)
+
+        if not items:
+            label_text = '还没有收藏' if collection == 'bookmarks' else '还没有稍后再看'
+            tk.Label(inner, text=label_text,
+                     bg=th['BG_CONTENT'], fg=th['FG_MUTED'],
+                     font=('PingFang SC', 13)).pack(pady=40)
+            return
+
+        for item in items:
+            row = tk.Frame(inner, bg=th['BG_CARD'],
+                           highlightbackground=th['BORDER'], highlightthickness=1)
+            row.pack(fill=tk.X, padx=14, pady=4)
+
+            text_col = tk.Frame(row, bg=th['BG_CARD'])
+            text_col.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0), pady=8)
+
+            tk.Label(text_col, text=item.get('title', ''),
+                     bg=th['BG_CARD'], fg=th['FG_MAIN'],
+                     font=('PingFang SC', 11),
+                     wraplength=520, justify=tk.LEFT, anchor='w').pack(fill=tk.X)
+            tk.Label(text_col,
+                     text=f"{item.get('source', '')}  •  {item.get('saved_at', '')[:10]}",
+                     bg=th['BG_CARD'], fg=th['FG_MUTED'],
+                     font=('PingFang SC', 9), anchor='w').pack(fill=tk.X, pady=(2, 0))
+
+            # Open link on row click
+            def _click(e, link=item.get('link')):
+                if link:
+                    import subprocess as _sp
+                    _sp.Popen(['open', link])
+            row.bind('<Button-1>', _click)
+            text_col.bind('<Button-1>', _click)
+
+            # Delete button
+            del_btn = tk.Label(row, text='✕', bg=th['BG_CARD'], fg=th['FG_MUTED'],
+                               font=('PingFang SC', 13), cursor='hand2',
+                               padx=10, pady=8)
+            del_btn.pack(side=tk.RIGHT)
+
+            def _delete(e, iid=item.get('id'), col=collection):
+                self._storage.remove(col, iid)
+                # Rebuild the view to reflect deletion
+                self._build_collection_view(col)
+            del_btn.bind('<Button-1>', _delete)
+            del_btn.bind('<Enter>', lambda e, b=del_btn: b.configure(fg=th['FG_RED']))
+            del_btn.bind('<Leave>', lambda e, b=del_btn: b.configure(fg=th['FG_MUTED']))
 
     def _show_news_loading(self, msg):
         th = THEMES[self._theme_mode]
