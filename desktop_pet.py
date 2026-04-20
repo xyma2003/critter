@@ -300,7 +300,7 @@ def load_settings():
         'auto_refresh_min': 30,
         'notify_on_refresh': False,
         'pet_emoji': '🐱',
-        'pet_size': 76,
+        'pet_size': 96,
     })
 
 def save_settings(s):
@@ -2727,6 +2727,22 @@ class MainPanel:
 class DesktopPet:
     ANIM_INTERVAL = 50
 
+    # 小猫配色
+    _CAT_PALETTES = {
+        'orange': dict(body='#f5a623', belly='#fde8c0', ear_in='#f08080',
+                       stripe='#d4881e', eye='#2d8a4e', nose='#e87d9e',
+                       whisker='#c8b89a', mouth='#c0506a'),
+        'gray':   dict(body='#9e9e9e', belly='#e0e0e0', ear_in='#f48fb1',
+                       stripe='#757575', eye='#5c6bc0', nose='#e87d9e',
+                       whisker='#bdbdbd', mouth='#9e6070'),
+        'white':  dict(body='#f0f0f0', belly='#ffffff', ear_in='#f48fb1',
+                       stripe='#cccccc', eye='#42a5f5', nose='#e87d9e',
+                       whisker='#cccccc', mouth='#b06080'),
+        'black':  dict(body='#3a3a3a', belly='#6a6a6a', ear_in='#f08080',
+                       stripe='#222222', eye='#ffca28', nose='#e87d9e',
+                       whisker='#888888', mouth='#c06070'),
+    }
+
     def __init__(self):
         self.settings = load_settings()
         self.root = tk.Tk()
@@ -2738,7 +2754,7 @@ class DesktopPet:
 
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        self.w = self.h = self.settings.get('pet_size', 76)
+        self.w = self.h = self.settings.get('pet_size', 96)
         self.x = sw - self.w - 28
         self.y = sh - self.h - 120
         self.root.geometry(f'{self.w}x{self.h}+{self.x}+{self.y}')
@@ -2747,12 +2763,7 @@ class DesktopPet:
                                 bg=_TRANS, highlightthickness=0)
         self.canvas.pack()
 
-        self.circle = None
-        self.emoji_id = self.canvas.create_text(
-            self.w//2, self.h//2,
-            text=self.settings.get('pet_emoji', '🐱'),
-            font=('Apple Color Emoji', 34))
-
+        # 小猫动画状态
         self._drag_x = self._drag_y = 0
         self._dragging = False
         self._press_time = 0
@@ -2760,6 +2771,10 @@ class DesktopPet:
         self._anim_frame = 0
         self._bouncing = False
         self._bounce_frame = 0
+        self._blink_timer = 0
+        self._BLINK_INTERVAL = 80   # frames between blinks
+        self._cat_mood = 'normal'   # 'normal' | 'happy' | 'sleepy' | 'excited'
+        self._mood_timer = 0        # frames remaining for temp mood
 
         self.canvas.bind('<ButtonPress-1>',    self._on_press)
         self.canvas.bind('<B1-Motion>',        self._on_drag)
@@ -2783,34 +2798,219 @@ class DesktopPet:
         self._animate()
 
     def set_emoji(self, em):
-        self.canvas.itemconfig(self.emoji_id, text=em)
+        """MainPanel 调用此方法反映心情；映射到小猫表情状态。"""
+        mood_map = {
+            '😊': 'happy', '🙂': 'normal', '😐': 'normal',
+            '😔': 'sleepy', '😞': 'sleepy',
+            '😋': 'happy', '😹': 'excited', '😴': 'sleepy',
+        }
+        self._cat_mood = mood_map.get(em, 'normal')
+        self._mood_timer = 20   # hold for 20 frames then back to normal
 
     def trigger_bounce(self):
         self._bouncing = True
         self._bounce_frame = 0
+        self._cat_mood = 'excited'
+        self._mood_timer = 16
+
+    def _draw_cat(self, offset_y, scale):
+        """每帧重绘小猫。scale 以 1.0 为基准。"""
+        self.canvas.delete('all')
+        c = self._CAT_PALETTES.get(
+            self.settings.get('cat_color', 'orange'),
+            self._CAT_PALETTES['orange'])
+
+        # 坐标系：以窗口中心为参考，s 是缩放因子
+        s = scale * (self.w / 120)
+        ox = self.w / 2
+        oy = self.h / 2 + offset_y
+
+        def p(x, y):
+            """原型坐标（120×120 画布，中心 60,68）→ 实际坐标"""
+            return ox + (x - 60) * s, oy + (y - 68) * s
+
+        t = self._anim_frame / 60.0
+        breath = math.sin(2 * math.pi * t * 0.4) * 1.5 * s
+        tail_a = math.sin(2 * math.pi * t * 0.6) * 28
+        whisker_w = math.sin(2 * math.pi * t * 0.3) * 1.5 * s
+
+        # ── 尾巴 ────────────────────────────────────────
+        tx0, ty0 = p(82, 82)
+        ctrl_x = ox + (82 + 28 + math.sin(math.radians(tail_a)) * 18 - 60) * s
+        ctrl_y = oy + (82 - 30 + math.cos(math.radians(tail_a)) * 10 - 68) * s
+        tip_x  = ox + (82 + 12 + math.sin(math.radians(tail_a)) * 32 - 60) * s
+        tip_y  = oy + (82 - 52 + math.cos(math.radians(tail_a)) * 8  - 68) * s
+        pts = []
+        for i in range(11):
+            tt = i / 10
+            bx = (1-tt)**2*tx0 + 2*(1-tt)*tt*ctrl_x + tt**2*tip_x
+            by = (1-tt)**2*ty0 + 2*(1-tt)*tt*ctrl_y + tt**2*tip_y
+            pts.extend([bx, by])
+        tw = max(2, int(7 * s))
+        self.canvas.create_line(pts, fill=c['body'], width=tw,
+                                capstyle=tk.ROUND, smooth=True)
+        r_tip = max(2, int(5 * s))
+        self.canvas.create_oval(tip_x - r_tip, tip_y - r_tip,
+                                tip_x + r_tip, tip_y + r_tip,
+                                fill=c['belly'], outline='')
+
+        # ── 身体 ────────────────────────────────────────
+        bx1, by1 = p(24, 38)
+        bx2, by2 = p(96, 98)
+        self.canvas.create_oval(bx1, by1 + breath, bx2, by2 + breath,
+                                fill=c['body'], outline='')
+        px1, py1 = p(44, 54)
+        px2, py2 = p(76, 86)
+        self.canvas.create_oval(px1, py1 + breath, px2, py2 + breath,
+                                fill=c['belly'], outline='')
+
+        # ── 头 ──────────────────────────────────────────
+        hcx, hcy = p(60, 34)
+        hw = int(26 * s)
+        self.canvas.create_oval(hcx - hw, hcy - hw + breath * 0.5,
+                                hcx + hw, hcy + hw + breath * 0.5,
+                                fill=c['body'], outline='')
+
+        # ── 耳朵 ────────────────────────────────────────
+        hb = breath * 0.5
+        # 左耳外
+        self.canvas.create_polygon(
+            *p(38, 16), *p(50, -4), *p(56, 16),
+            fill=c['body'], outline='')
+        self.canvas.create_polygon(
+            *(x + (0 if i % 2 == 0 else hb) for i, x in enumerate(
+                [*p(40, 14), *p(49, -1), *p(53, 14)])),
+            fill=c['ear_in'], outline='')
+        # 右耳外
+        self.canvas.create_polygon(
+            *p(82, 16), *p(70, -4), *p(64, 16),
+            fill=c['body'], outline='')
+        self.canvas.create_polygon(
+            *(x + (0 if i % 2 == 0 else hb) for i, x in enumerate(
+                [*p(80, 14), *p(71, -1), *p(67, 14)])),
+            fill=c['ear_in'], outline='')
+
+        # ── 头顶条纹 ────────────────────────────────────
+        for dx in [-8, 0, 8]:
+            x1, y1 = p(60 + dx, 8)
+            x2, y2 = p(62 + dx, 18)
+            self.canvas.create_line(x1, y1 + hb, x2, y2 + hb,
+                                    fill=c['stripe'],
+                                    width=max(1, int(2 * s)),
+                                    capstyle=tk.ROUND)
+
+        # ── 眼睛 ────────────────────────────────────────
+        self._blink_timer += 1
+        blinking = (self._blink_timer % self._BLINK_INTERVAL) < 4
+        mood = self._cat_mood
+        if self._mood_timer > 0:
+            self._mood_timer -= 1
+        else:
+            mood = 'normal'
+            self._cat_mood = 'normal'
+
+        ex_l, ey_l = p(50, 34)
+        ex_r, ey_r = p(70, 34)
+        ey_l += hb; ey_r += hb
+        er = max(3, int(7 * s))
+
+        if blinking or mood == 'sleepy':
+            # 眯眼弧线
+            for ex, ey in [(ex_l, ey_l), (ex_r, ey_r)]:
+                self.canvas.create_arc(ex - er, ey - er * 0.4,
+                                       ex + er, ey + er * 0.8,
+                                       start=0, extent=180,
+                                       style=tk.ARC,
+                                       outline=c['eye'],
+                                       width=max(1, int(2 * s)))
+        elif mood == 'happy':
+            # 弯弯眼（上弧）
+            for ex, ey in [(ex_l, ey_l), (ex_r, ey_r)]:
+                self.canvas.create_arc(ex - er, ey - er,
+                                       ex + er, ey + er * 0.5,
+                                       start=0, extent=-180,
+                                       style=tk.ARC,
+                                       outline=c['eye'],
+                                       width=max(1, int(2 * s)))
+        elif mood == 'excited':
+            # 大圆眼
+            er2 = int(er * 1.3)
+            for ex, ey in [(ex_l, ey_l), (ex_r, ey_r)]:
+                self.canvas.create_oval(ex - er2, ey - er2, ex + er2, ey + er2,
+                                        fill='white', outline='')
+                self.canvas.create_oval(ex - int(er2 * 0.6), ey - int(er2 * 0.7),
+                                        ex + int(er2 * 0.6), ey + int(er2 * 0.5),
+                                        fill=c['eye'], outline='')
+                self.canvas.create_oval(ex - int(er2 * 0.3), ey - int(er2 * 0.4),
+                                        ex + int(er2 * 0.3), ey + int(er2 * 0.2),
+                                        fill='#1a1a2e', outline='')
+                self.canvas.create_oval(ex + int(er2 * 0.1), ey - int(er2 * 0.3),
+                                        ex + int(er2 * 0.4), ey,
+                                        fill='white', outline='')
+        else:
+            # 普通圆眼
+            for ex, ey in [(ex_l, ey_l), (ex_r, ey_r)]:
+                self.canvas.create_oval(ex - er, ey - er, ex + er, ey + er,
+                                        fill='white', outline='')
+                ep = int(er * 0.6)
+                self.canvas.create_oval(ex - ep, ey - ep, ex + ep, ey + ep,
+                                        fill=c['eye'], outline='')
+                ep2 = int(er * 0.3)
+                self.canvas.create_oval(ex - ep2, ey - ep2, ex + ep2, ey + ep2,
+                                        fill='#1a1a2e', outline='')
+                self.canvas.create_oval(ex + int(er * 0.1), ey - int(er * 0.3),
+                                        ex + int(er * 0.4), ey,
+                                        fill='white', outline='')
+
+        # ── 鼻子 + 嘴 ───────────────────────────────────
+        nx, ny = p(60, 42)
+        ny += hb
+        ns = max(2, int(3 * s))
+        self.canvas.create_polygon(nx - ns, ny, nx + ns, ny, nx, ny + ns * 1.2,
+                                   fill=c['nose'], outline='')
+        self.canvas.create_line(nx, ny + ns * 1.2,
+                                nx - int(6 * s), ny + int(5 * s) + ns * 1.2,
+                                fill=c['mouth'], width=max(1, int(s)))
+        self.canvas.create_line(nx, ny + ns * 1.2,
+                                nx + int(6 * s), ny + int(5 * s) + ns * 1.2,
+                                fill=c['mouth'], width=max(1, int(s)))
+
+        # ── 胡须 ────────────────────────────────────────
+        for sign in (-1, 1):
+            for i, (wdx, wdy) in enumerate([(-22, -3), (-20, 2), (-18, 7)]):
+                x1, y1 = p(60 + sign * 8, 44 + wdy * 0.3)
+                x2 = x1 + sign * abs(wdx) * s
+                y2 = y1 + wdy * s * 0.4 + (whisker_w if i == 1 else 0)
+                y1 += hb; y2 += hb
+                self.canvas.create_line(x1, y1, x2, y2,
+                                        fill=c['whisker'],
+                                        width=max(1, int(s)))
+
+        # ── 爪子 ────────────────────────────────────────
+        for pdx in (-14, 14):
+            px1, py1 = p(60 + pdx - 8, 96)
+            px2, py2 = p(60 + pdx + 8, 108)
+            self.canvas.create_oval(px1, py1 + breath, px2, py2 + breath,
+                                    fill=c['body'], outline='')
 
     def _animate(self):
         t = (self._anim_frame % 72) / 72
-        cx, cy = self.w // 2, self.h // 2
 
         if self._bouncing:
             p = self._bounce_frame / 10
-            offset_y = int(-16 * math.sin(p * math.pi))
-            scale = 1.0 + 0.14 * math.sin(p * math.pi)
+            offset_y = int(-14 * math.sin(p * math.pi) * (self.w / 96))
+            scale = 1.0 + 0.12 * math.sin(p * math.pi)
             self._bounce_frame += 1
             if self._bounce_frame > 10:
                 self._bouncing = False
         elif self._hovering:
-            offset_y = -3
-            scale = 1.1
+            offset_y = int(-3 * (self.w / 96))
+            scale = 1.08
         else:
-            offset_y = int(-4 * math.sin(2 * math.pi * t))
-            scale = 1.0 + 0.03 * math.sin(2 * math.pi * t)
+            offset_y = int(-4 * math.sin(2 * math.pi * t) * (self.w / 96))
+            scale = 1.0
 
-        r = max(20, int(34 * scale))
-        self.canvas.coords(self.emoji_id, cx, cy + offset_y)
-        self.canvas.itemconfig(self.emoji_id, font=('Apple Color Emoji', r))
-
+        self._draw_cat(offset_y, scale)
         self._anim_frame += 1
         self.root.after(self.ANIM_INTERVAL, self._animate)
 
