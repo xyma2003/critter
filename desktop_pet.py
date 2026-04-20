@@ -2508,6 +2508,67 @@ class MainPanel:
             b.pack(side=tk.LEFT)
             b.bind('<Button-1>', lambda ev, em=e: self._set_emoji(em))
 
+        card2 = _section('宠物性格')
+
+        # Row A — 宠物名字
+        row_name = tk.Frame(card2, bg=th['BG_CARD'])
+        row_name.pack(fill=tk.X, padx=16, pady=12)
+        tk.Label(row_name, text='名字', bg=th['BG_CARD'], fg=th['FG_MUTED'],
+                 font=('PingFang SC', 11), width=8, anchor='w').pack(side=tk.LEFT)
+        self._pet_name_var = tk.StringVar(value=self.pet.settings.get('pet_name', '小猫'))
+        tk.Entry(row_name, textvariable=self._pet_name_var, width=14,
+                 bg=th['BG_HOVER'], fg=th['FG_MAIN'], relief=tk.FLAT,
+                 font=('PingFang SC', 11),
+                 insertbackground=th['FG_MAIN']).pack(side=tk.LEFT)
+
+        tk.Frame(card2, bg=th['DIVIDER'], height=1).pack(fill=tk.X, padx=16)
+
+        # Row B — 宠物性格（5-option label buttons）
+        row_personality = tk.Frame(card2, bg=th['BG_CARD'])
+        row_personality.pack(fill=tk.X, padx=16, pady=12)
+        tk.Label(row_personality, text='性格', bg=th['BG_CARD'], fg=th['FG_MUTED'],
+                 font=('PingFang SC', 11), width=8, anchor='w').pack(side=tk.LEFT)
+        self._personality_var = tk.StringVar(
+            value=self.pet.settings.get('pet_personality', '温柔'))
+
+        def _update_personality_btns():
+            for child in row_personality.winfo_children():
+                if isinstance(child, tk.Label) and child.cget('text') in ['温柔', '活泼', '傲娇', '淡定', '搞笑']:
+                    if child.cget('text') == self._personality_var.get():
+                        child.configure(bg=th['FG_ACCENT'], fg='#ffffff',
+                                        highlightbackground=th['FG_ACCENT'])
+                    else:
+                        child.configure(bg=th['BG_CARD'], fg=th['FG_MAIN'],
+                                        highlightbackground=th['BORDER'])
+
+        for opt in ['温柔', '活泼', '傲娇', '淡定', '搞笑']:
+            b = tk.Label(row_personality, text=opt,
+                         font=('PingFang SC', 11), cursor='hand2',
+                         padx=10, pady=4,
+                         highlightthickness=1)
+            b.pack(side=tk.LEFT, padx=3)
+
+            def _on_personality_click(opt=opt):
+                self._personality_var.set(opt)
+                _update_personality_btns()
+
+            b.bind('<Button-1>', lambda e, o=opt: _on_personality_click(o))
+        _update_personality_btns()
+
+        tk.Frame(card2, bg=th['DIVIDER'], height=1).pack(fill=tk.X, padx=16)
+
+        # Row C — 口头禅
+        row_catchphrase = tk.Frame(card2, bg=th['BG_CARD'])
+        row_catchphrase.pack(fill=tk.X, padx=16, pady=12)
+        tk.Label(row_catchphrase, text='口头禅', bg=th['BG_CARD'], fg=th['FG_MUTED'],
+                 font=('PingFang SC', 11), width=8, anchor='w').pack(side=tk.LEFT)
+        self._catchphrase_var = tk.StringVar(
+            value=self.pet.settings.get('pet_catchphrase', '喵~'))
+        tk.Entry(row_catchphrase, textvariable=self._catchphrase_var, width=20,
+                 bg=th['BG_HOVER'], fg=th['FG_MAIN'], relief=tk.FLAT,
+                 font=('PingFang SC', 11),
+                 insertbackground=th['FG_MAIN']).pack(side=tk.LEFT)
+
         save_btn = tk.Label(inner, text='保存设置',
                             bg=th['BG_BTN'], fg='#ffffff',
                             font=('PingFang SC', 12, 'bold'),
