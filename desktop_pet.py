@@ -2230,22 +2230,120 @@ class MainPanel:
         self._pet_log.insert('1.0', f'[{ts}] {msg}\n')
         self._pet_log.configure(state=tk.DISABLED)
 
+    # ── 互动台词池（按状态分支）──────────────────────────
+    _FEED_LINES = {
+        'starving': [
+            '终于等到你了！我都快饿晕了 😭🐟',
+            '呜呜好饿好饿，谢谢你救了我！🐟',
+            '肚子咕咕叫超久了……好香啊！😋',
+        ],
+        'hungry': [
+            '正好有点饿，吃得好满足~ 🐟',
+            '嗯嗯嗯，鱼鱼最好吃了！😸',
+            '哇，鱼！我最喜欢的！🐟✨',
+            '谢谢铲屎官，吃饱了好开心~ 😊',
+        ],
+        'full': [
+            '其实我还不太饿……但鱼鱼不吃白不吃 😏',
+            '刚吃过呢，不过再吃一点也没关系啦 😅🐟',
+            '撑死我了，你太宠我了吧 🤣',
+        ],
+    }
+    _PLAY_LINES = {
+        'bored': [
+            '终于有人陪我玩了！冲啊！🎾💨',
+            '我等这一刻好久了！！🎾🎉',
+            '无聊死了，快来快来！😆',
+        ],
+        'normal': [
+            '耶！逗猫棒！！扑过去！🎾',
+            '哈哈抓到了！再来再来！😹',
+            '嗖——！我好厉害！🐾🎾',
+            '玩得好开心，尾巴都竖起来了~ 😸',
+        ],
+        'tired': [
+            '有点累了，但还是想玩……🥱🎾',
+            '玩一下下就好，我有点困 😴',
+            '嗯……勉强陪你玩一会儿吧 😪',
+        ],
+    }
+    _REST_LINES = {
+        'exhausted': [
+            '累坏了……zzz 好舒服好舒服 💤',
+            '终于可以睡了，不要叫我……💤😴',
+            '眼皮好重……立刻进入梦乡 💤',
+        ],
+        'normal': [
+            '小憩一下，充个电~ 💤',
+            '闭上眼睛，很快就好了 😌',
+            '嗯……睡一觉什么都好了 💤✨',
+            '躺平！休息是最重要的事！😴',
+        ],
+        'energetic': [
+            '其实我不困，但既然你让我休息……💤',
+            '勉强躺一会儿吧，反正也没事做 😏',
+            '好吧好吧，补个觉也不错 😌',
+        ],
+    }
+
+    def _flash_emoji(self, flash_em, duration_ms=700):
+        """短暂显示 flash_em，然后恢复到当前心情 emoji。"""
+        def _restore():
+            if self.win and self.win.winfo_exists():
+                self._sync_pet_ui()
+        for attr in ('_pet_emoji_label', '_home_emoji', '_chat_topbar_emoji'):
+            w = getattr(self, attr, None)
+            if w and w.winfo_exists():
+                w.configure(text=flash_em)
+        base = self.pet.settings.get('pet_emoji', '🐱')
+        if base == '🐱':
+            self.pet.set_emoji(flash_em)
+        if self.win and self.win.winfo_exists():
+            self.win.after(duration_ms, _restore)
+
     def _feed(self):
+        import random
+        hunger = self.stats.hunger
+        if hunger < 30:
+            bucket = 'starving'
+        elif hunger < 70:
+            bucket = 'hungry'
+        else:
+            bucket = 'full'
         self.stats.feed()
         self._sync_pet_ui()
-        self._log_pet('被喂食了，好满足~ 🐟')
+        self._flash_emoji('😋', 800)
+        self._log_pet(random.choice(self._FEED_LINES[bucket]))
         self.pet.trigger_bounce()
 
     def _play(self):
+        import random
+        energy = self.stats.energy
+        if energy < 30:
+            bucket = 'tired'
+        elif self.stats.mood < 50:
+            bucket = 'bored'
+        else:
+            bucket = 'normal'
         self.stats.play()
         self._sync_pet_ui()
-        self._log_pet('一起玩了逗猫棒，好快乐！🎾')
+        self._flash_emoji('😹', 800)
+        self._log_pet(random.choice(self._PLAY_LINES[bucket]))
         self.pet.trigger_bounce()
 
     def _sleep(self):
+        import random
+        energy = self.stats.energy
+        if energy < 25:
+            bucket = 'exhausted'
+        elif energy > 75:
+            bucket = 'energetic'
+        else:
+            bucket = 'normal'
         self.stats.rest()
         self._sync_pet_ui()
-        self._log_pet('进入休息状态，充电中... 💤')
+        self._flash_emoji('😴', 1000)
+        self._log_pet(random.choice(self._REST_LINES[bucket]))
 
     # ══════════════════════════════════════════════════
     #  Tab: 便签
