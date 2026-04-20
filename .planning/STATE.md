@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-16)
 Phase: 01 (news-bookmarks) — EXECUTING
 Plan: 2 of 2
 Status: Phase complete — ready for verification
-Last activity: 2026-04-20 - Completed quick task 260420-fw5: 宠物自定义名字、性格、口头禅
+Last activity: 2026-04-20 - Completed quick task 260420-tv8: 用 Pillow 生成可爱正脸卡通猫替换 DesktopPet Canvas 向量猫
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -79,6 +79,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260420-fw5 | 宠物自定义：名字、性格、口头禅，注入 system prompt，UI 显示宠物名字 | 2026-04-20 | 7b5a7be | [260420-fw5-system-prompt-ui](.planning/quick/260420-fw5-system-prompt-ui/) |
+| 260420-tv8 | 用 Pillow 生成可爱正脸卡通猫替换 DesktopPet Canvas 向量猫 | 2026-04-20 | 860d6ee | [260420-tv8-pillow-desktoppet-canvas](.planning/quick/260420-tv8-pillow-desktoppet-canvas/) |
 
 ### Blockers/Concerns
 
