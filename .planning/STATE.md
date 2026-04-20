@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-16)
 Phase: 01 (news-bookmarks) — EXECUTING
 Plan: 2 of 2
 Status: Phase complete — ready for verification
-Last activity: 2026-04-16
+Last activity: 2026-04-20 - Completed quick task 260420-fw5: 宠物自定义名字、性格、口头禅
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -73,6 +73,12 @@ Recent decisions affecting current work:
 ### Pending Todos
 
 None yet.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260420-fw5 | 宠物自定义：名字、性格、口头禅，注入 system prompt，UI 显示宠物名字 | 2026-04-20 | 7b5a7be | [260420-fw5-system-prompt-ui](.planning/quick/260420-fw5-system-prompt-ui/) |
 
 ### Blockers/Concerns
 
