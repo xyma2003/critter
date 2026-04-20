@@ -21,7 +21,8 @@ CACHE_FILE  = os.path.expanduser("~/.openclaw/workspace/desktop-pet/web-pet/news
 NOTE_FILE   = os.path.expanduser("~/.openclaw/workspace/desktop-pet/notes.json")
 SETTINGS_FILE = os.path.expanduser("~/.openclaw/workspace/desktop-pet/settings.json")
 CACHE_TTL   = 30 * 60
-BOOKMARKS_FILE = os.path.expanduser("~/.openclaw/workspace/desktop-pet/bookmarks.json")
+BOOKMARKS_FILE   = os.path.expanduser("~/.openclaw/workspace/desktop-pet/bookmarks.json")
+USER_PROFILE_FILE = os.path.expanduser("~/.openclaw/workspace/desktop-pet/user_profile.json")
 
 # ── 颜色主题 ──────────────────────────────────────────
 THEMES = {
@@ -295,6 +296,7 @@ class MainPanel:
         self._storage = StorageRepository(BOOKMARKS_FILE)
         self._news_current_view = 'feed'   # 'feed' | 'bookmarks' | 'read_later'
         self._news_refresh_job = None
+        self._profile_enabled = True       # 本对话是否记录用户画像，默认开
 
     # ── macOS 窗口层级修复 ────────────────────────────
 
@@ -761,6 +763,13 @@ class MainPanel:
             bg=th['BG_TOOLBAR'], fg=th['FG_MAIN'],
             font=('PingFang SC', 12, 'bold')).pack(side=tk.LEFT)
 
+        # 右侧：用户画像记录开关
+        self._profile_btn = tk.Label(chat_topbar, text='🧠 记录',
+            bg=th['BG_TOOLBAR'], fg=th['FG_ACCENT'],
+            font=('PingFang SC', 10), cursor='hand2', padx=10)
+        self._profile_btn.pack(side=tk.RIGHT)
+        self._profile_btn.bind('<Button-1>', lambda e: self._toggle_profile_recording())
+
         tk.Frame(self._chat_frame, bg=th['DIVIDER'], height=1).pack(fill=tk.X)
 
         # 聊天输入栏（先 pack BOTTOM）
@@ -920,6 +929,8 @@ class MainPanel:
 
     def _switch_to_chat(self):
         self._chat_started = True
+        self._profile_enabled = True   # 每次新对话默认开启画像记录
+        self._update_profile_btn()
         sid = int(time.time() * 1000)
         self._current_session_id = sid
         self._chat_sessions.append({
@@ -929,6 +940,19 @@ class MainPanel:
         })
         self._welcome_frame.place_forget()
         self._chat_frame.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+    def _toggle_profile_recording(self):
+        self._profile_enabled = not self._profile_enabled
+        self._update_profile_btn()
+
+    def _update_profile_btn(self):
+        th = THEMES[self._theme_mode]
+        btn = getattr(self, '_profile_btn', None)
+        if btn and btn.winfo_exists():
+            if self._profile_enabled:
+                btn.configure(text='🧠 记录', fg=th['FG_ACCENT'])
+            else:
+                btn.configure(text='🧠 不记录', fg=th['FG_DIM'])
 
     def _save_current_session(self):
         if self._current_session_id is None:
@@ -1199,6 +1223,17 @@ class MainPanel:
             f'你是一只可爱的桌面宠物 {emoji}，性格温柔活泼，说话简短可爱，'
             '偶尔用叠词或语气词，回复控制在 2-3 句以内，不要用 Markdown 格式。'
         )
+        profile = load_json(USER_PROFILE_FILE, {})
+        if profile:
+            parts = []
+            if profile.get('name'):
+                parts.append(f"用户名字叫{profile['name']}")
+            if profile.get('pet_nickname'):
+                parts.append(f"用户叫你{profile['pet_nickname']}")
+            if profile.get('notes'):
+                parts.append('；'.join(profile['notes']))
+            if parts:
+                system += '关于用户你已知道：' + '，'.join(parts) + '。'
         accumulated = ''
         try:
             proc = subprocess.Popen(
@@ -1258,7 +1293,92 @@ class MainPanel:
         self._chat_thinking = False
         self._set_send_btns_color(th['FG_ACCENT'], enabled=True)
         self.pet.trigger_bounce()
+        if self._profile_enabled:
+            # 取本轮对话最后一条用户消息（即刚发送的那条）
+            # bubbles 存为 (role, text) 元组列表
+            sess = next((s for s in self._chat_sessions
+                         if s['id'] == self._current_session_id), None)
+            last_user = ''
+            if sess:
+                for b in reversed(sess.get('bubbles', [])):
+                    role = b[0] if isinstance(b, (tuple, list)) else b.get('role', '')
+                    text = b[1] if isinstance(b, (tuple, list)) else b.get('text', '')
+                    if role == 'user':
+                        last_user = text
+                        break
+            # bubbles 在 _save_current_session 才更新，这里直接用 _thinking_canvas 之前的输入
+            # 通过 _chat_inner 子控件读取最后一个 user bubble
+            if not last_user:
+                for row in reversed(self._chat_inner.winfo_children()):
+                    found = False
+                    for child in row.winfo_children():
+                        if child.winfo_class() == 'Canvas' and hasattr(child, '_text_id'):
+                            role = 'user' if child._bubble_bg == THEMES[self._theme_mode]['FG_ACCENT'] else 'pet'
+                            if role == 'user':
+                                last_user = child.itemcget(child._text_id, 'text')
+                                found = True
+                                break
+                    if found:
+                        break
+            if last_user:
+                threading.Thread(
+                    target=self._extract_profile_async,
+                    args=(last_user, final_text),
+                    daemon=True
+                ).start()
 
+
+    # ══════════════════════════════════════════════════
+    #  Tab: 新闻
+    # ══════════════════════════════════════════════════
+
+    def _extract_profile_async(self, user_text, pet_reply):
+        """Call Claude to extract profile info from one exchange; merge into user_profile.json."""
+        existing = load_json(USER_PROFILE_FILE, {})
+        existing_summary = json.dumps(existing, ensure_ascii=False)
+        prompt = (
+            f'从下面这段对话中提取用户的个人信息，只关注：用户名字、用户对 AI 的称呼/命名、用户的自我介绍。'
+            f'已有画像：{existing_summary}\n'
+            f'用户说：{user_text}\nAI回复：{pet_reply}\n'
+            '请以 JSON 格式返回需要更新的字段，字段名只用：name（用户名字）、pet_nickname（用户给AI的称呼）、notes（list，其他自我介绍信息）。'
+            '如果这段对话没有任何新的个人信息，返回空 JSON {}。只返回 JSON，不要任何解释。'
+        )
+        try:
+            proc = subprocess.Popen(
+                ['/opt/homebrew/bin/claude', '--print',
+                 '--output-format', 'json'],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, text=True
+            )
+            out, _ = proc.communicate(input=prompt, timeout=30)
+            # claude --output-format json 返回 {"result": "..."}
+            try:
+                wrapper = json.loads(out)
+                raw = wrapper.get('result', out)
+            except Exception:
+                raw = out
+            # 从 raw 里提取第一个 JSON 对象
+            import re as _re
+            m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+            if not m:
+                return
+            updates = json.loads(m.group())
+            if not updates:
+                return
+            # 合并：name/pet_nickname 直接覆盖；notes 追加去重
+            if 'name' in updates and updates['name']:
+                existing['name'] = updates['name']
+            if 'pet_nickname' in updates and updates['pet_nickname']:
+                existing['pet_nickname'] = updates['pet_nickname']
+            if 'notes' in updates and updates['notes']:
+                old_notes = existing.get('notes', [])
+                for note in updates['notes']:
+                    if note and note not in old_notes:
+                        old_notes.append(note)
+                existing['notes'] = old_notes
+            save_json(USER_PROFILE_FILE, existing)
+        except Exception:
+            pass
 
     # ══════════════════════════════════════════════════
     #  Tab: 新闻
