@@ -294,6 +294,7 @@ class MainPanel:
         self._current_session_id = None
         self._storage = StorageRepository(BOOKMARKS_FILE)
         self._news_current_view = 'feed'   # 'feed' | 'bookmarks' | 'read_later'
+        self._news_refresh_job = None
 
     # ── macOS 窗口层级修复 ────────────────────────────
 
@@ -1617,7 +1618,23 @@ class MainPanel:
             status = f'{tstr} [{tag}]'
             if self.win and self.win.winfo_exists():
                 self.win.after(0, lambda: self._render_news(sections, status))
+                self.win.after(0, self._schedule_news_refresh)
         threading.Thread(target=run, daemon=True).start()
+
+    def _schedule_news_refresh(self):
+        """Schedule the next automatic news refresh based on auto_refresh_min setting."""
+        if self._news_refresh_job is not None:
+            try:
+                self.win.after_cancel(self._news_refresh_job)
+            except Exception:
+                pass
+            self._news_refresh_job = None
+        mins = int(self.pet.settings.get('auto_refresh_min', 30))
+        if mins > 0 and self.win and self.win.winfo_exists():
+            self._news_refresh_job = self.win.after(
+                mins * 60 * 1000,
+                lambda: self._load_news_async(force=True)
+            )
 
     def _render_news(self, sections, status, cols=None):
         th = THEMES[self._theme_mode]
