@@ -16,6 +16,12 @@ import subprocess
 import random
 import ctypes
 
+try:
+    from PIL import Image, ImageDraw, ImageTk
+    _PIL_AVAILABLE = True
+except ImportError:
+    _PIL_AVAILABLE = False
+
 NEWS_SCRIPT = os.path.expanduser("~/.openclaw/workspace/skills/news-digest/scripts/fetch_news.py")
 CACHE_FILE  = os.path.expanduser("~/.openclaw/workspace/desktop-pet/web-pet/news_cache.json")
 NOTE_FILE   = os.path.expanduser("~/.openclaw/workspace/desktop-pet/notes.json")
@@ -2776,6 +2782,17 @@ class DesktopPet:
         self._cat_mood = 'normal'   # 'normal' | 'happy' | 'sleepy' | 'excited'
         self._mood_timer = 0        # frames remaining for temp mood
 
+        # Pillow 帧动画状态（需在 canvas.pack() 后初始化）
+        if _PIL_AVAILABLE:
+            self._cat_frames = self._generate_cat_frames()
+            self._idle_frame_idx = 0
+            self._blink_cooldown = 80   # 距下次眨眼的帧数
+            self._blink_active = False  # 正在显示眨眼帧
+            self._blink_duration = 0   # 眨眼帧剩余显示帧数
+            self._cat_image_id = None  # canvas image item id
+        else:
+            self._cat_frames = None
+
         self.canvas.bind('<ButtonPress-1>',    self._on_press)
         self.canvas.bind('<B1-Motion>',        self._on_drag)
         self.canvas.bind('<ButtonRelease-1>',  self._on_release)
@@ -2800,9 +2817,10 @@ class DesktopPet:
     def set_emoji(self, em):
         """MainPanel 调用此方法反映心情；映射到小猫表情状态。"""
         mood_map = {
-            '😊': 'happy', '🙂': 'normal', '😐': 'normal',
-            '😔': 'sleepy', '😞': 'sleepy',
-            '😋': 'happy', '😹': 'excited', '😴': 'sleepy',
+            '😊': 'happy',   '🙂': 'normal',   '😐': 'normal',
+            '😔': 'sleepy',  '😞': 'sleepy',   '😴': 'sleepy',
+            '😋': 'happy',   '😹': 'excited',  '😸': 'happy',
+            '😺': 'happy',   '😍': 'excited',  '🎉': 'excited',
         }
         self._cat_mood = mood_map.get(em, 'normal')
         self._mood_timer = 20   # hold for 20 frames then back to normal
@@ -2812,6 +2830,190 @@ class DesktopPet:
         self._bounce_frame = 0
         self._cat_mood = 'excited'
         self._mood_timer = 16
+
+    def _generate_cat_frames(self):
+        """用 Pillow 生成可爱正脸卡通猫帧集（idle×4/blink/happy/excited/sleepy）。"""
+        if not _PIL_AVAILABLE:
+            return None
+        size = self.w
+        s = size / 96  # 缩放因子
+
+        def make_frame(body_offset_x=0, eye_mode='normal'):
+            img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+            d = ImageDraw.Draw(img, 'RGBA')
+
+            cx = size // 2 + body_offset_x
+            cy = size // 2 + 2
+
+            def sc(v):
+                return int(v * s)
+
+            # 1. 三角耳（先画，让头圆压住底部）
+            ear_color = '#F5A623'
+            ear_in_color = '#FF8FAB'
+            # 左耳外
+            d.polygon([(cx - sc(28), cy - sc(28)),
+                        (cx - sc(38), cy - sc(55)),
+                        (cx - sc(12), cy - sc(50))],
+                       fill=ear_color, outline='#1A1A1A')
+            # 右耳外
+            d.polygon([(cx + sc(28), cy - sc(28)),
+                        (cx + sc(38), cy - sc(55)),
+                        (cx + sc(12), cy - sc(50))],
+                       fill=ear_color, outline='#1A1A1A')
+            # 左耳内（粉色）
+            d.polygon([(cx - sc(27), cy - sc(30)),
+                        (cx - sc(35), cy - sc(50)),
+                        (cx - sc(15), cy - sc(46))],
+                       fill=ear_in_color)
+            # 右耳内
+            d.polygon([(cx + sc(27), cy - sc(30)),
+                        (cx + sc(35), cy - sc(50)),
+                        (cx + sc(15), cy - sc(46))],
+                       fill=ear_in_color)
+
+            # 2. 头圆
+            d.ellipse([cx - sc(30), cy - sc(32), cx + sc(30), cy + sc(26)],
+                       fill='#F5A623', outline='#1A1A1A', width=max(1, sc(2)))
+
+            # 3. 腮红（半透明粉色）
+            d.ellipse([cx - sc(26), cy - sc(2), cx - sc(12), cy + sc(10)],
+                       fill=(255, 179, 198, 160))
+            d.ellipse([cx + sc(12), cy - sc(2), cx + sc(26), cy + sc(10)],
+                       fill=(255, 179, 198, 160))
+
+            # 4. 眼睛
+            eye_positions = [(cx - sc(13), cy - sc(10)), (cx + sc(13), cy - sc(10))]
+            for ex, ey in eye_positions:
+                er = sc(9)
+                if eye_mode == 'blink' or eye_mode == 'sleepy':
+                    # 半闭眼：眼白椭圆高度减半 + 弧线
+                    d.ellipse([ex - er, ey - er // 2, ex + er, ey + er // 2],
+                               fill='white', outline='#1A1A1A', width=1)
+                    d.arc([ex - er, ey - er, ex + er, ey + er],
+                           start=0, end=180, fill='#2D8A4E', width=max(1, sc(2)))
+                elif eye_mode == 'happy':
+                    # 弯弯笑眼（弧线，上凸 U）
+                    d.arc([ex - er, ey - er, ex + er, ey + sc(4)],
+                           start=200, end=340, fill='#2D8A4E', width=max(2, sc(2)))
+                elif eye_mode == 'excited':
+                    # 大圆眼
+                    er2 = sc(11)
+                    d.ellipse([ex - er2, ey - er2, ex + er2, ey + er2],
+                               fill='white', outline='#1A1A1A', width=1)
+                    d.ellipse([ex - sc(7), ey - sc(8), ex + sc(7), ey + sc(6)],
+                               fill='#2D8A4E')
+                    d.ellipse([ex - sc(3), ey - sc(4), ex + sc(3), ey + sc(2)],
+                               fill='#1A1A2E')
+                    d.ellipse([ex - sc(6), ey - sc(7), ex - sc(3), ey - sc(4)],
+                               fill='white')
+                    d.ellipse([ex + sc(1), ey - sc(5), ex + sc(3), ey - sc(3)],
+                               fill='white')
+                else:
+                    # 普通圆眼：外白圆 + 绿瞳孔 + 深瞳仁 + 双高光
+                    d.ellipse([ex - er, ey - er, ex + er, ey + er],
+                               fill='white', outline='#1A1A1A', width=1)
+                    d.ellipse([ex - sc(6), ey - sc(7), ex + sc(6), ey + sc(5)],
+                               fill='#2D8A4E')
+                    d.ellipse([ex - sc(3), ey - sc(3), ex + sc(3), ey + sc(3)],
+                               fill='#1A1A2E')
+                    d.ellipse([ex - sc(5), ey - sc(6), ex - sc(2), ey - sc(3)],
+                               fill='white')
+                    d.ellipse([ex + sc(1), ey - sc(4), ex + sc(3), ey - sc(2)],
+                               fill='white')
+
+            # 5. 鼻子
+            d.ellipse([cx - sc(5), cy + sc(2), cx + sc(5), cy + sc(10)],
+                       fill='#3D2B1F', outline='#1A1A1A', width=1)
+            d.ellipse([cx - sc(3), cy + sc(3), cx, cy + sc(6)],
+                       fill='white')
+
+            # 6. 嘴
+            if eye_mode == 'excited':
+                # 张嘴
+                d.ellipse([cx - sc(6), cy + sc(10), cx + sc(6), cy + sc(18)],
+                           fill='#C0506A', outline='#1A1A1A', width=1)
+            else:
+                d.line([cx, cy + sc(10), cx - sc(8), cy + sc(16)],
+                        fill='#C0506A', width=max(1, sc(2)))
+                d.line([cx, cy + sc(10), cx + sc(8), cy + sc(16)],
+                        fill='#C0506A', width=max(1, sc(2)))
+
+            # 7. 胡须（6 根）
+            for sign in (-1, 1):
+                for wdx, wdy in [(sc(19), -sc(2)), (sc(18), sc(1)), (sc(17), sc(4))]:
+                    x1 = cx + sign * sc(7)
+                    y1 = cy + sc(6) + wdy
+                    x2 = cx + sign * (sc(7) + wdx)
+                    y2 = y1
+                    d.line([x1, y1, x2, y2], fill='#999999', width=1)
+
+            return img
+
+        # 生成各帧
+        raw = {
+            'idle': [make_frame(body_offset_x=ox) for ox in [0, sc(3), 0, -sc(3)]],
+            'blink': [make_frame(eye_mode='blink')],
+            'happy': [make_frame(eye_mode='happy')],
+            'excited': [make_frame(eye_mode='excited')],
+            'sleepy': [make_frame(eye_mode='sleepy')],
+        }
+
+        # 转换为 ImageTk.PhotoImage（必须在 Tk 主循环创建后调用）
+        frames = {}
+        for key, imgs in raw.items():
+            frames[key] = [ImageTk.PhotoImage(img) for img in imgs]
+        return frames
+
+    def _draw_cat_pillow(self, offset_y):
+        """使用预生成 Pillow 帧渲染猫，替代 Canvas 向量绘制。"""
+        mood = self._cat_mood
+        if self._mood_timer > 0:
+            self._mood_timer -= 1
+        else:
+            mood = 'normal'
+            self._cat_mood = 'normal'
+
+        # 眨眼计时
+        self._blink_timer += 1
+        if self._blink_active:
+            self._blink_duration -= 1
+            if self._blink_duration <= 0:
+                self._blink_active = False
+                self._blink_cooldown = random.randint(60, 100)  # 3-5秒@50ms
+        else:
+            if self._blink_cooldown > 0:
+                self._blink_cooldown -= 1
+            else:
+                self._blink_active = True
+                self._blink_duration = 4  # 眨眼持续 4 帧
+
+        # 选择帧
+        if self._blink_active or mood == 'sleepy':
+            frames = self._cat_frames.get('blink') or self._cat_frames['idle']
+            frame = frames[0]
+        elif mood == 'happy':
+            frames = self._cat_frames.get('happy') or self._cat_frames['idle']
+            frame = frames[0]
+        elif mood == 'excited':
+            frames = self._cat_frames.get('excited') or self._cat_frames['idle']
+            frame = frames[0]
+        else:
+            # idle 4 帧循环（每 6 个 anim_frame 切换一帧）
+            idle_idx = (self._anim_frame // 6) % 4
+            frame = self._cat_frames['idle'][idle_idx]
+
+        # 渲染到 Canvas
+        self.canvas.delete('all')
+        cx = self.w // 2
+        cy = self.h // 2 + offset_y
+        if not hasattr(self, '_cat_image_id') or self._cat_image_id is None:
+            self._cat_image_id = self.canvas.create_image(cx, cy, image=frame, anchor='center')
+        else:
+            self.canvas.itemconfig(self._cat_image_id, image=frame)
+            self.canvas.coords(self._cat_image_id, cx, cy)
+        # 保持引用防止 GC 导致图像消失
+        self.canvas._pillow_frame_ref = frame
 
     def _draw_cat(self, offset_y, scale):
         """每帧重绘小猫。scale 以 1.0 为基准。"""
@@ -3010,7 +3212,10 @@ class DesktopPet:
             offset_y = int(-4 * math.sin(2 * math.pi * t) * (self.w / 96))
             scale = 1.0
 
-        self._draw_cat(offset_y, scale)
+        if self._cat_frames:
+            self._draw_cat_pillow(offset_y)
+        else:
+            self._draw_cat(offset_y, scale)
         self._anim_frame += 1
         self.root.after(self.ANIM_INTERVAL, self._animate)
 
