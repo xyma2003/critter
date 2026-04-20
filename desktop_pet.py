@@ -174,6 +174,127 @@ class StorageRepository:
         except Exception:
             return []
 
+# ══════════════════════════════════════════════════════
+#  PetStats — 心情 / 饱食 / 精力 数值管理
+# ══════════════════════════════════════════════════════
+
+PET_STATS_FILE = os.path.expanduser("~/.openclaw/workspace/desktop-pet/pet_stats.json")
+
+class PetStats:
+    """
+    三个数值各 0-100，随时间自然衰减，互动可回复。
+    数值持久化到 pet_stats.json，重启后继续。
+    """
+    DECAY_INTERVAL_MS = 10 * 60 * 1000   # 每 10 分钟衰减一次
+    HUNGER_DECAY  = 6    # 饱食度每次 -6
+    ENERGY_DECAY  = 4    # 精力每次 -4
+    # 心情由饱食度和精力共同决定，不单独衰减
+
+    # emoji 映射（根据 mood 值）
+    MOOD_EMOJI = [
+        (80, '😊'),
+        (60, '🙂'),
+        (40, '😐'),
+        (20, '😔'),
+        (0,  '😞'),
+    ]
+
+    def __init__(self):
+        data = load_json(PET_STATS_FILE, {})
+        self.hunger = float(data.get('hunger', 80))
+        self.energy = float(data.get('energy', 80))
+        self._compute_mood()
+
+    def _compute_mood(self):
+        self.mood = (self.hunger * 0.5 + self.energy * 0.5)
+
+    def _clamp(self, v):
+        return max(0.0, min(100.0, v))
+
+    def feed(self):
+        self.hunger = self._clamp(self.hunger + 35)
+        self.energy = self._clamp(self.energy + 10)
+        self._compute_mood()
+        self._save()
+
+    def play(self):
+        self.hunger = self._clamp(self.hunger - 10)
+        self.energy = self._clamp(self.energy - 15)
+        self.mood   = self._clamp(self.mood + 20)   # 玩耍直接拉心情
+        self._save()
+
+    def rest(self):
+        self.energy = self._clamp(self.energy + 40)
+        self._compute_mood()
+        self._save()
+
+    def on_chat(self):
+        """每次对话结束后调用，心情小幅提升。"""
+        self.mood = self._clamp(self.mood + 8)
+        self._save()
+
+    def decay(self):
+        """定时衰减，由 win.after 调用。"""
+        self.hunger = self._clamp(self.hunger - self.HUNGER_DECAY)
+        self.energy = self._clamp(self.energy - self.ENERGY_DECAY)
+        self._compute_mood()
+        self._save()
+
+    def mood_emoji(self):
+        for threshold, em in self.MOOD_EMOJI:
+            if self.mood >= threshold:
+                return em
+        return '😞'
+
+    def mood_label(self):
+        if self.mood >= 80:
+            return '😊 心情很好'
+        if self.mood >= 60:
+            return '🙂 还不错'
+        if self.mood >= 40:
+            return '😐 一般般'
+        if self.mood >= 20:
+            return '😔 有点低落'
+        return '😞 心情很差'
+
+    def hunger_label(self):
+        if self.hunger >= 80:
+            return '🍚 吃得饱饱'
+        if self.hunger >= 55:
+            return '😋 不太饿'
+        if self.hunger >= 30:
+            return '😐 有点饿了'
+        return '😫 好饿好饿'
+
+    def energy_label(self):
+        if self.energy >= 80:
+            return '⚡ 精力充沛'
+        if self.energy >= 55:
+            return '🙂 还有劲'
+        if self.energy >= 30:
+            return '😴 有点困'
+        return '🌙 累坏了'
+
+    def system_prompt_hint(self):
+        """返回注入 system prompt 的心情描述。"""
+        if self.mood >= 80:
+            return '你现在心情很好，说话活泼开朗，喜欢用叠词和撒娇语气。'
+        if self.mood >= 60:
+            return '你现在心情不错，正常温柔可爱。'
+        if self.mood >= 40:
+            return '你现在心情一般，话少一点，偶尔叹气。'
+        if self.mood >= 20:
+            return '你现在有点低落，说话简短，偶尔委屈。'
+        return '你现在心情很差，说话有气无力，会撒娇说想被陪伴。'
+
+    def _save(self):
+        save_json(PET_STATS_FILE, {
+            'hunger': round(self.hunger, 1),
+            'energy': round(self.energy, 1),
+            'mood':   round(self.mood, 1),
+        })
+
+
 def load_settings():
     return load_json(SETTINGS_FILE, {
         'auto_refresh_min': 30,
@@ -297,6 +418,7 @@ class MainPanel:
         self._news_current_view = 'feed'   # 'feed' | 'bookmarks' | 'read_later'
         self._news_refresh_job = None
         self._profile_enabled = True       # 本对话是否记录用户画像，默认开
+        self.stats = PetStats()            # 心情 / 饱食 / 精力数值
 
     # ── macOS 窗口层级修复 ────────────────────────────
 
@@ -459,6 +581,7 @@ class MainPanel:
             frame.grid(row=0, column=0, sticky='nsew')
 
         self._switch_tab('home')
+        self._start_stats_decay()
 
     def _add_nav_btn(self, key, icon, label):
         th = THEMES[self._theme_mode]
@@ -1222,6 +1345,7 @@ class MainPanel:
         system = (
             f'你是一只可爱的桌面宠物 {emoji}，性格温柔活泼，说话简短可爱，'
             '偶尔用叠词或语气词，回复控制在 2-3 句以内，不要用 Markdown 格式。'
+            + self.stats.system_prompt_hint()
         )
         profile = load_json(USER_PROFILE_FILE, {})
         if profile:
@@ -1293,6 +1417,8 @@ class MainPanel:
         self._chat_thinking = False
         self._set_send_btns_color(th['FG_ACCENT'], enabled=True)
         self.pet.trigger_bounce()
+        self.stats.on_chat()
+        self._sync_pet_ui()
         if self._profile_enabled:
             # 取本轮对话最后一条用户消息（即刚发送的那条）
             # bubbles 存为 (role, text) 元组列表
@@ -1952,15 +2078,19 @@ class MainPanel:
         body = tk.Frame(frame, bg=th['BG_CONTENT'])
         body.pack(fill=tk.BOTH, expand=True, padx=20, pady=16)
 
+        # ── 左侧：emoji + 按钮 ──
         left = tk.Frame(body, bg=th['BG_CONTENT'])
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 20))
 
         self._pet_emoji_label = tk.Label(left,
-            text=self.pet.settings.get('pet_emoji', '🐱'),
+            text=self.stats.mood_emoji(),
             bg=th['BG_CONTENT'], font=('Apple Color Emoji', 72))
-        self._pet_emoji_label.pack(pady=(20, 8))
-        tk.Label(left, text='你的桌面小宠物', bg=th['BG_CONTENT'],
-                 fg=th['FG_ACCENT'], font=('PingFang SC', 12, 'bold')).pack()
+        self._pet_emoji_label.pack(pady=(20, 4))
+
+        self._pet_mood_lbl = tk.Label(left, text=self.stats.mood_label(),
+            bg=th['BG_CONTENT'], fg=th['FG_ACCENT'],
+            font=('PingFang SC', 12, 'bold'))
+        self._pet_mood_lbl.pack()
 
         btn_frame = tk.Frame(left, bg=th['BG_CONTENT'])
         btn_frame.pack(pady=16)
@@ -1976,6 +2106,7 @@ class MainPanel:
             b.bind('<Enter>', lambda e, w=b: w.configure(bg=th['BG_HOVER']))
             b.bind('<Leave>', lambda e, w=b: w.configure(bg=th['BG_CARD']))
 
+        # ── 右侧：数值卡片 + 互动记录 ──
         right = tk.Frame(body, bg=th['BG_CONTENT'])
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -1983,16 +2114,40 @@ class MainPanel:
                         highlightbackground=th['BORDER'], highlightthickness=1)
         card.pack(fill=tk.X, pady=(8, 12))
 
-        self._pet_mood   = tk.StringVar(value='😊 心情很好')
-        self._pet_energy = tk.StringVar(value='⚡ 精力充沛')
+        # 三行数值：心情 / 饱食 / 精力，每行带进度条
+        self._stat_bars   = {}   # key -> Canvas (进度条)
+        self._stat_labels = {}   # key -> Label  (文字)
 
-        for var, label in [(self._pet_mood, '心情'), (self._pet_energy, '状态')]:
+        BAR_W, BAR_H = 160, 8
+        BAR_COLORS = {
+            'mood':   '#f48fb1',   # 粉
+            'hunger': '#80cbc4',   # 青
+            'energy': '#ffe082',   # 黄
+        }
+        stat_rows = [
+            ('mood',   '心情', self.stats.mood_label()),
+            ('hunger', '饱食', self.stats.hunger_label()),
+            ('energy', '精力', self.stats.energy_label()),
+        ]
+        for key, label_text, desc in stat_rows:
             row = tk.Frame(card, bg=th['BG_CARD'])
             row.pack(fill=tk.X, padx=14, pady=8)
-            tk.Label(row, text=label, bg=th['BG_CARD'], fg=th['FG_MUTED'],
-                     font=('PingFang SC', 11), width=5, anchor='w').pack(side=tk.LEFT)
-            tk.Label(row, textvariable=var, bg=th['BG_CARD'], fg=th['FG_MAIN'],
-                     font=('PingFang SC', 12)).pack(side=tk.LEFT, padx=6)
+            tk.Label(row, text=label_text, bg=th['BG_CARD'], fg=th['FG_MUTED'],
+                     font=('PingFang SC', 11), width=4, anchor='w').pack(side=tk.LEFT)
+
+            bar_canvas = tk.Canvas(row, width=BAR_W, height=BAR_H,
+                                   bg=th['BG_HOVER'], highlightthickness=0, bd=0)
+            bar_canvas.pack(side=tk.LEFT, padx=(6, 10))
+            val = getattr(self.stats, key)
+            fill_w = max(4, int(BAR_W * val / 100))
+            bar_canvas.create_rectangle(0, 0, fill_w, BAR_H,
+                fill=BAR_COLORS[key], outline='', tags='bar')
+            self._stat_bars[key] = (bar_canvas, BAR_W, BAR_H, BAR_COLORS[key])
+
+            desc_lbl = tk.Label(row, text=desc, bg=th['BG_CARD'], fg=th['FG_MAIN'],
+                                font=('PingFang SC', 11))
+            desc_lbl.pack(side=tk.LEFT)
+            self._stat_labels[key] = desc_lbl
 
         tk.Label(right, text='互动记录', bg=th['BG_CONTENT'], fg=th['FG_MUTED'],
                  font=('PingFang SC', 10)).pack(anchor='w', pady=(0, 4))
@@ -2005,6 +2160,58 @@ class MainPanel:
         self._log_pet('宠物醒来了，开始新的一天 ✨')
         return frame
 
+    def _sync_pet_ui(self):
+        """刷新宠物 tab 进度条、文字、以及所有 emoji 显示点。"""
+        if not (self.win and self.win.winfo_exists()):
+            return
+        s = self.stats
+        mood_em = s.mood_emoji()
+
+        # 宠物 tab emoji 和心情文字
+        if hasattr(self, '_pet_emoji_label') and self._pet_emoji_label.winfo_exists():
+            self._pet_emoji_label.configure(text=mood_em)
+        if hasattr(self, '_pet_mood_lbl') and self._pet_mood_lbl.winfo_exists():
+            self._pet_mood_lbl.configure(text=s.mood_label())
+
+        # 进度条 + 文字描述
+        labels_map = {
+            'mood':   s.mood_label(),
+            'hunger': s.hunger_label(),
+            'energy': s.energy_label(),
+        }
+        vals_map = {'mood': s.mood, 'hunger': s.hunger, 'energy': s.energy}
+        for key, (bar_canvas, BAR_W, BAR_H, color) in self._stat_bars.items():
+            if bar_canvas.winfo_exists():
+                fill_w = max(4, int(BAR_W * vals_map[key] / 100))
+                bar_canvas.delete('bar')
+                bar_canvas.create_rectangle(0, 0, fill_w, BAR_H,
+                    fill=color, outline='', tags='bar')
+            lbl = self._stat_labels.get(key)
+            if lbl and lbl.winfo_exists():
+                lbl.configure(text=labels_map[key])
+
+        # 悬浮 emoji（DesktopPet canvas）— 仅当用户没有自定义 emoji 时跟随心情
+        # 规则：如果 settings['pet_emoji'] 是基础猫 🐱，则跟随心情；否则保持用户选择
+        base_emoji = self.pet.settings.get('pet_emoji', '🐱')
+        if base_emoji == '🐱':
+            self.pet.set_emoji(mood_em)
+            # 主页大 emoji
+            if hasattr(self, '_home_emoji') and self._home_emoji.winfo_exists():
+                self._home_emoji.configure(text=mood_em)
+            # 聊天 topbar emoji
+            if hasattr(self, '_chat_topbar_emoji') and self._chat_topbar_emoji.winfo_exists():
+                self._chat_topbar_emoji.configure(text=mood_em)
+
+    def _start_stats_decay(self):
+        """每 10 分钟衰减一次，循环调度。"""
+        def _decay_tick():
+            self.stats.decay()
+            self._sync_pet_ui()
+            if self.win and self.win.winfo_exists():
+                self.win.after(PetStats.DECAY_INTERVAL_MS, _decay_tick)
+        if self.win and self.win.winfo_exists():
+            self.win.after(PetStats.DECAY_INTERVAL_MS, _decay_tick)
+
     def _log_pet(self, msg):
         ts = time.strftime('%H:%M')
         self._pet_log.configure(state=tk.NORMAL)
@@ -2012,21 +2219,21 @@ class MainPanel:
         self._pet_log.configure(state=tk.DISABLED)
 
     def _feed(self):
-        self._pet_mood.set('😋 吃饱了好开心')
-        self._pet_energy.set('⚡ 精力充沛')
+        self.stats.feed()
+        self._sync_pet_ui()
         self._log_pet('被喂食了，好满足~ 🐟')
         self.pet.trigger_bounce()
 
     def _play(self):
-        self._pet_mood.set('😆 玩得超开心')
-        self._pet_energy.set('💨 有点累了')
+        self.stats.play()
+        self._sync_pet_ui()
         self._log_pet('一起玩了逗猫棒，好快乐！🎾')
         self.pet.trigger_bounce()
 
     def _sleep(self):
-        self._pet_mood.set('😴 在打盹...')
-        self._pet_energy.set('🌙 休息中')
-        self._log_pet('进入休息状态，别打扰我... 💤')
+        self.stats.rest()
+        self._sync_pet_ui()
+        self._log_pet('进入休息状态，充电中... 💤')
 
     # ══════════════════════════════════════════════════
     #  Tab: 便签
