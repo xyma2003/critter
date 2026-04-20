@@ -1342,8 +1342,13 @@ class MainPanel:
 
     def _stream_pet_ai(self, user_text):
         emoji = self.pet.settings.get('pet_emoji', '🐱')
+        pet_name        = self.pet.settings.get('pet_name', '小猫')
+        pet_personality = self.pet.settings.get('pet_personality', '温柔')
+        pet_catchphrase = self.pet.settings.get('pet_catchphrase', '喵~')
         system = (
-            f'你是一只可爱的桌面宠物 {emoji}，性格温柔活泼，说话简短可爱，'
+            f'你是一只可爱的桌面宠物 {emoji}，名字叫{pet_name}，'
+            f'性格{pet_personality}，说话简短可爱，'
+            f'偶尔使用你的口头禅"{pet_catchphrase}"，'
             '偶尔用叠词或语气词，回复控制在 2-3 句以内，不要用 Markdown 格式。'
             + self.stats.system_prompt_hint()
         )
@@ -2092,6 +2097,13 @@ class MainPanel:
             font=('PingFang SC', 12, 'bold'))
         self._pet_mood_lbl.pack()
 
+        self._pet_name_display_lbl = tk.Label(
+            left,
+            text=self.pet.settings.get('pet_name', '小猫'),
+            bg=th['BG_CONTENT'], fg=th['FG_MUTED'],
+            font=('PingFang SC', 11))
+        self._pet_name_display_lbl.pack(pady=(0, 4))
+
         btn_frame = tk.Frame(left, bg=th['BG_CONTENT'])
         btn_frame.pack(pady=16)
         for text, action in [('🐟 喂食', self._feed),
@@ -2594,8 +2606,14 @@ class MainPanel:
     def _save_settings(self):
         s = self.pet.settings
         s['pet_emoji'] = self._emoji_var.get()
+        s['pet_name']        = self._pet_name_var.get().strip() or '小猫'
+        s['pet_personality'] = self._personality_var.get()
+        s['pet_catchphrase'] = self._catchphrase_var.get().strip() or '喵~'
         save_settings(s)
         self.pet.settings = s
+        if hasattr(self, '_pet_name_display_lbl'):
+            self._pet_name_display_lbl.configure(
+                text=s.get('pet_name', '小猫'))
         self._settings_status.configure(text='✅ 已保存')
         def _clear():
             if self.win and self.win.winfo_exists():
