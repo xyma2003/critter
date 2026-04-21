@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-04-21T02:44:46.811Z",
+  "phase": "quick",
+  "phase_name": "tv8-pillow-desktoppet-canvas",
+  "phase_dir": ".planning/quick/260420-tv8-pillow-desktoppet-canvas",
+  "plan": "260420-tv8",
+  "task": 1,
+  "total_tasks": 1,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "Q版猫绘制逻辑重写（大圆头、半圆耳、大眼睛）", "status": "done"},
+    {"id": 2, "name": "修复 _draw_cat_pillow() image id 失效 bug", "status": "done"},
+    {"id": 3, "name": "耳朵从三角形改为半圆形", "status": "done"}
+  ],
+  "remaining_tasks": [
+    {"id": 4, "name": "恢复透明背景（当前为白色方块）", "status": "not_started"}
+  ],
+  "blockers": [
+    {
+      "description": "macOS tkinter -transparent True + Canvas RGBA 图像无法正确合成，猫不可见",
+      "type": "technical",
+      "workaround": "Canvas bg 改为 white（白色方块背景），猫可见但背景不透明"
+    }
+  ],
+  "human_actions_pending": [],
+  "decisions": [
+    {"decision": "耳朵用 chord（半圆）代替 polygon（三角）", "rationale": "用户反馈三角耳太丑，半圆更自然"},
+    {"decision": "暂用白色背景", "rationale": "让猫先能显示，透明问题后续解决"},
+    {"decision": "每帧重新 create_image", "rationale": "delete('all') 后 itemconfig 的 id 已失效"}
+  ],
+  "uncommitted_files": ["desktop_pet.py"],
+  "next_action": "解决透明背景：用 ctypes NSWindow setOpaque(False) + clearColor，参考 _fix_panel_window_level 已有实现",
+  "context_notes": "Q版猫已可见（白色背景），用户满意耳朵形状改进。核心问题是透明窗口+Pillow图像合成在macOS上的兼容性。"
+}

@@ -2762,11 +2762,11 @@ class DesktopPet:
         sh = self.root.winfo_screenheight()
         self.w = self.h = self.settings.get('pet_size', 96)
         self.x = sw - self.w - 28
-        self.y = sh - self.h - 120
+        self.y = sh - self.h - 200
         self.root.geometry(f'{self.w}x{self.h}+{self.x}+{self.y}')
 
         self.canvas = tk.Canvas(self.root, width=self.w, height=self.h,
-                                bg=_TRANS, highlightthickness=0)
+                                bg='white', highlightthickness=0)
         self.canvas.pack()
 
         # 小猫动画状态
@@ -2832,7 +2832,7 @@ class DesktopPet:
         self._mood_timer = 16
 
     def _generate_cat_frames(self):
-        """用 Pillow 生成可爱正脸卡通猫帧集（idle×4/blink/happy/excited/sleepy）。"""
+        """用 Pillow 生成 Q 版圆润卡通猫帧集（idle×4/blink/happy/excited/sleepy）。"""
         if not _PIL_AVAILABLE:
             return None
         size = self.w
@@ -2843,116 +2843,107 @@ class DesktopPet:
             d = ImageDraw.Draw(img, 'RGBA')
 
             cx = size // 2 + body_offset_x
-            cy = size // 2 + 2
+            cy = size // 2 + 4  # 整体略下移，给耳朵留空间
 
             def sc(v):
                 return int(v * s)
 
-            # 1. 三角耳（先画，让头圆压住底部）
-            ear_color = '#F5A623'
-            ear_in_color = '#FF8FAB'
-            # 左耳外
-            d.polygon([(cx - sc(28), cy - sc(28)),
-                        (cx - sc(38), cy - sc(55)),
-                        (cx - sc(12), cy - sc(50))],
-                       fill=ear_color, outline='#1A1A1A')
+            # 颜色方案：奶白色主体，粉色耳内，紫色虹膜
+            body_color = '#FEFEFE'
+            outline_color = '#2A1A0A'
+            ear_in_color = '#FFB3C6'
+            iris_color = '#6B3FA0'
+            pupil_color = '#1A0A2E'
+            blush_color = (255, 182, 193, 140)
+            nose_color = '#FF6B8A'
+            mouth_color = '#CC4466'
+            whisker_color = '#AAAAAA'
+
+            # 1. 半圆耳（贴合头顶曲线，自然圆润）
+            # 左耳外（半圆，只画上半部分）
+            d.chord([cx - sc(42), cy - sc(44), cx - sc(14), cy - sc(16)],
+                     start=200, end=360, fill=body_color, outline=outline_color)
+            d.chord([cx - sc(39), cy - sc(41), cx - sc(17), cy - sc(19)],
+                     start=200, end=360, fill=ear_in_color)
             # 右耳外
-            d.polygon([(cx + sc(28), cy - sc(28)),
-                        (cx + sc(38), cy - sc(55)),
-                        (cx + sc(12), cy - sc(50))],
-                       fill=ear_color, outline='#1A1A1A')
-            # 左耳内（粉色）
-            d.polygon([(cx - sc(27), cy - sc(30)),
-                        (cx - sc(35), cy - sc(50)),
-                        (cx - sc(15), cy - sc(46))],
-                       fill=ear_in_color)
-            # 右耳内
-            d.polygon([(cx + sc(27), cy - sc(30)),
-                        (cx + sc(35), cy - sc(50)),
-                        (cx + sc(15), cy - sc(46))],
-                       fill=ear_in_color)
+            d.chord([cx + sc(14), cy - sc(44), cx + sc(42), cy - sc(16)],
+                     start=180, end=340, fill=body_color, outline=outline_color)
+            d.chord([cx + sc(17), cy - sc(41), cx + sc(39), cy - sc(19)],
+                     start=180, end=340, fill=ear_in_color)
 
-            # 2. 头圆
-            d.ellipse([cx - sc(30), cy - sc(32), cx + sc(30), cy + sc(26)],
-                       fill='#F5A623', outline='#1A1A1A', width=max(1, sc(2)))
+            # 2. 大圆头（Q 版核心：头很大很圆）
+            head_r = sc(32)
+            d.ellipse([cx - head_r, cy - head_r + sc(2),
+                        cx + head_r, cy + head_r - sc(2)],
+                       fill=body_color, outline=outline_color, width=max(2, sc(2)))
 
-            # 3. 腮红（半透明粉色）
-            d.ellipse([cx - sc(26), cy - sc(2), cx - sc(12), cy + sc(10)],
-                       fill=(255, 179, 198, 160))
-            d.ellipse([cx + sc(12), cy - sc(2), cx + sc(26), cy + sc(10)],
-                       fill=(255, 179, 198, 160))
+            # 3. 腮红（大圆，更萌）
+            d.ellipse([cx - sc(24), cy + sc(4), cx - sc(10), cy + sc(16)], fill=blush_color)
+            d.ellipse([cx + sc(10), cy + sc(4), cx + sc(24), cy + sc(16)], fill=blush_color)
 
-            # 4. 眼睛
-            eye_positions = [(cx - sc(13), cy - sc(10)), (cx + sc(13), cy - sc(10))]
+            # 4. 大眼睛（占脸 1/3，Q 版关键）
+            eye_positions = [(cx - sc(14), cy - sc(6)), (cx + sc(14), cy - sc(6))]
+            er = sc(11)
             for ex, ey in eye_positions:
-                er = sc(9)
                 if eye_mode == 'blink' or eye_mode == 'sleepy':
-                    # 半闭眼：眼白椭圆高度减半 + 弧线
-                    d.ellipse([ex - er, ey - er // 2, ex + er, ey + er // 2],
-                               fill='white', outline='#1A1A1A', width=1)
-                    d.arc([ex - er, ey - er, ex + er, ey + er],
-                           start=0, end=180, fill='#2D8A4E', width=max(1, sc(2)))
+                    # 弯月闭眼弧线
+                    d.arc([ex - er, ey - er // 2, ex + er, ey + er // 2],
+                           start=0, end=180, fill=outline_color, width=max(2, sc(2)))
                 elif eye_mode == 'happy':
-                    # 弯弯笑眼（弧线，上凸 U）
-                    d.arc([ex - er, ey - er, ex + er, ey + sc(4)],
-                           start=200, end=340, fill='#2D8A4E', width=max(2, sc(2)))
+                    # U 形笑眼
+                    d.arc([ex - er, ey - sc(4), ex + er, ey + sc(8)],
+                           start=200, end=340, fill=iris_color, width=max(2, sc(3)))
                 elif eye_mode == 'excited':
-                    # 大圆眼
-                    er2 = sc(11)
+                    # 超大星星眼
+                    er2 = sc(13)
                     d.ellipse([ex - er2, ey - er2, ex + er2, ey + er2],
-                               fill='white', outline='#1A1A1A', width=1)
-                    d.ellipse([ex - sc(7), ey - sc(8), ex + sc(7), ey + sc(6)],
-                               fill='#2D8A4E')
-                    d.ellipse([ex - sc(3), ey - sc(4), ex + sc(3), ey + sc(2)],
-                               fill='#1A1A2E')
-                    d.ellipse([ex - sc(6), ey - sc(7), ex - sc(3), ey - sc(4)],
-                               fill='white')
-                    d.ellipse([ex + sc(1), ey - sc(5), ex + sc(3), ey - sc(3)],
-                               fill='white')
+                               fill='white', outline=outline_color, width=1)
+                    d.ellipse([ex - sc(9), ey - sc(9), ex + sc(9), ey + sc(9)], fill=iris_color)
+                    d.ellipse([ex - sc(5), ey - sc(5), ex + sc(5), ey + sc(5)], fill=pupil_color)
+                    d.ellipse([ex - sc(8), ey - sc(8), ex - sc(5), ey - sc(5)], fill='white')
+                    d.ellipse([ex + sc(2), ey - sc(6), ex + sc(5), ey - sc(3)], fill='white')
                 else:
-                    # 普通圆眼：外白圆 + 绿瞳孔 + 深瞳仁 + 双高光
+                    # 正常大眼：白底 + 彩色虹膜 + 深瞳孔 + 大高光
                     d.ellipse([ex - er, ey - er, ex + er, ey + er],
-                               fill='white', outline='#1A1A1A', width=1)
-                    d.ellipse([ex - sc(6), ey - sc(7), ex + sc(6), ey + sc(5)],
-                               fill='#2D8A4E')
-                    d.ellipse([ex - sc(3), ey - sc(3), ex + sc(3), ey + sc(3)],
-                               fill='#1A1A2E')
-                    d.ellipse([ex - sc(5), ey - sc(6), ex - sc(2), ey - sc(3)],
-                               fill='white')
-                    d.ellipse([ex + sc(1), ey - sc(4), ex + sc(3), ey - sc(2)],
-                               fill='white')
+                               fill='white', outline=outline_color, width=1)
+                    d.ellipse([ex - sc(8), ey - sc(8), ex + sc(8), ey + sc(8)], fill=iris_color)
+                    d.ellipse([ex - sc(4), ey - sc(4), ex + sc(4), ey + sc(4)], fill=pupil_color)
+                    d.ellipse([ex - sc(7), ey - sc(7), ex - sc(3), ey - sc(3)], fill='white')
+                    d.ellipse([ex + sc(1), ey - sc(5), ex + sc(4), ey - sc(2)], fill='white')
 
-            # 5. 鼻子
-            d.ellipse([cx - sc(5), cy + sc(2), cx + sc(5), cy + sc(10)],
-                       fill='#3D2B1F', outline='#1A1A1A', width=1)
-            d.ellipse([cx - sc(3), cy + sc(3), cx, cy + sc(6)],
-                       fill='white')
+            # 5. 小粉鼻子
+            d.ellipse([cx - sc(4), cy + sc(6), cx + sc(4), cy + sc(12)],
+                       fill=nose_color, outline=outline_color, width=1)
+            d.ellipse([cx - sc(2), cy + sc(7), cx, cy + sc(9)], fill=(255, 255, 255, 180))
 
-            # 6. 嘴
+            # 6. W 形小嘴
             if eye_mode == 'excited':
-                # 张嘴
-                d.ellipse([cx - sc(6), cy + sc(10), cx + sc(6), cy + sc(18)],
-                           fill='#C0506A', outline='#1A1A1A', width=1)
+                d.ellipse([cx - sc(5), cy + sc(12), cx + sc(5), cy + sc(19)],
+                           fill='#CC4466', outline=outline_color, width=1)
+                d.ellipse([cx - sc(3), cy + sc(13), cx + sc(3), cy + sc(17)], fill='#FF8FAB')
             else:
-                d.line([cx, cy + sc(10), cx - sc(8), cy + sc(16)],
-                        fill='#C0506A', width=max(1, sc(2)))
-                d.line([cx, cy + sc(10), cx + sc(8), cy + sc(16)],
-                        fill='#C0506A', width=max(1, sc(2)))
+                d.line([cx - sc(6), cy + sc(14), cx, cy + sc(12)],
+                        fill=mouth_color, width=max(1, sc(2)))
+                d.line([cx, cy + sc(12), cx + sc(6), cy + sc(14)],
+                        fill=mouth_color, width=max(1, sc(2)))
 
-            # 7. 胡须（6 根）
+            # 7. 胡须（短 4 根）
             for sign in (-1, 1):
-                for wdx, wdy in [(sc(19), -sc(2)), (sc(18), sc(1)), (sc(17), sc(4))]:
-                    x1 = cx + sign * sc(7)
-                    y1 = cy + sc(6) + wdy
-                    x2 = cx + sign * (sc(7) + wdx)
-                    y2 = y1
-                    d.line([x1, y1, x2, y2], fill='#999999', width=1)
+                for wdx, wdy in [(sc(16), sc(0)), (sc(15), sc(4))]:
+                    x1 = cx + sign * sc(6)
+                    y1 = cy + sc(8) + wdy
+                    x2 = cx + sign * (sc(6) + wdx)
+                    y2 = y1 + sign * sc(1)
+                    d.line([x1, y1, x2, y2], fill=whisker_color, width=1)
 
             return img
 
+        def sc_outer(v):
+            return int(v * s)
+
         # 生成各帧
         raw = {
-            'idle': [make_frame(body_offset_x=ox) for ox in [0, sc(3), 0, -sc(3)]],
+            'idle': [make_frame(body_offset_x=ox) for ox in [0, sc_outer(3), 0, -sc_outer(3)]],
             'blink': [make_frame(eye_mode='blink')],
             'happy': [make_frame(eye_mode='happy')],
             'excited': [make_frame(eye_mode='excited')],
@@ -3003,15 +2994,11 @@ class DesktopPet:
             idle_idx = (self._anim_frame // 6) % 4
             frame = self._cat_frames['idle'][idle_idx]
 
-        # 渲染到 Canvas
+        # 渲染到 Canvas（每帧重建，避免 delete('all') 后 id 失效）
         self.canvas.delete('all')
         cx = self.w // 2
         cy = self.h // 2 + offset_y
-        if not hasattr(self, '_cat_image_id') or self._cat_image_id is None:
-            self._cat_image_id = self.canvas.create_image(cx, cy, image=frame, anchor='center')
-        else:
-            self.canvas.itemconfig(self._cat_image_id, image=frame)
-            self.canvas.coords(self._cat_image_id, cx, cy)
+        self._cat_image_id = self.canvas.create_image(cx, cy, image=frame, anchor='center')
         # 保持引用防止 GC 导致图像消失
         self.canvas._pillow_frame_ref = frame
 
