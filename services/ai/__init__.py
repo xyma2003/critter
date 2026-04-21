@@ -19,12 +19,16 @@ def translate_titles_with_claude(titles):
             ['/opt/homebrew/bin/claude', '--print', prompt],
             capture_output=True, text=True, timeout=30
         )
-        lines = [l.strip() for l in result.stdout.strip().split('\n') if l.strip()]
-        translated = []
-        for line in lines:
-            line = re.sub(r'^\d+\.\s*', '', line)
-            translated.append(line)
-        if len(translated) == len(titles):
+        # 按编号匹配，忽略空行和多余文字，容忍 Claude 输出格式不稳定
+        translated = [None] * len(titles)
+        for line in result.stdout.split('\n'):
+            m = re.match(r'^(\d+)\.\s+(.+)', line.strip())
+            if m:
+                idx = int(m.group(1)) - 1
+                if 0 <= idx < len(titles):
+                    translated[idx] = m.group(2).strip()
+        # 只要所有条目都匹配到了就返回翻译结果，否则回退原文
+        if all(t is not None for t in translated):
             return translated
     except Exception:
         pass

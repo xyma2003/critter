@@ -10,6 +10,7 @@ import re
 import subprocess
 import random
 import hashlib
+import ctypes
 
 from config import (THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE,
                     BG_DARK, BG_PANEL, BG_CARD, BG_HOVER, FG_MAIN, FG_DIM,
@@ -781,6 +782,20 @@ class MainPanel:
         self._home_time_label.configure(text=time.strftime('%H:%M  %m/%d'))
         self.win.after(30000, self._update_home_clock)
 
+    @staticmethod
+    def _draw_rounded_rect(canvas, w, h, r, bg, tag):
+        """Draw a filled rounded rectangle on canvas using the given tag."""
+        canvas.create_arc(0, 0, r*2, r*2, start=90, extent=90,
+            fill=bg, outline=bg, tags=tag)
+        canvas.create_arc(w-r*2, 0, w, r*2, start=0, extent=90,
+            fill=bg, outline=bg, tags=tag)
+        canvas.create_arc(0, h-r*2, r*2, h, start=180, extent=90,
+            fill=bg, outline=bg, tags=tag)
+        canvas.create_arc(w-r*2, h-r*2, w, h, start=270, extent=90,
+            fill=bg, outline=bg, tags=tag)
+        canvas.create_rectangle(r, 0, w-r, h, fill=bg, outline=bg, tags=tag)
+        canvas.create_rectangle(0, r, w, h-r, fill=bg, outline=bg, tags=tag)
+
     def _rounded_bubble(self, parent, text, bg_color, fg_color, max_wrap=400):
         font_spec = ('PingFang SC', 12)
         pad_x, pad_y, radius = 14, 9, 12
@@ -810,18 +825,7 @@ class MainPanel:
 
         def _draw(canvas, cw, ch):
             canvas.delete('bubble_bg')
-            r = canvas._bubble_r
-            bg = canvas._bubble_bg
-            canvas.create_arc(0, 0, r*2, r*2, start=90, extent=90,
-                fill=bg, outline=bg, tags='bubble_bg')
-            canvas.create_arc(cw-r*2, 0, cw, r*2, start=0, extent=90,
-                fill=bg, outline=bg, tags='bubble_bg')
-            canvas.create_arc(0, ch-r*2, r*2, ch, start=180, extent=90,
-                fill=bg, outline=bg, tags='bubble_bg')
-            canvas.create_arc(cw-r*2, ch-r*2, cw, ch, start=270, extent=90,
-                fill=bg, outline=bg, tags='bubble_bg')
-            canvas.create_rectangle(r, 0, cw-r, ch, fill=bg, outline=bg, tags='bubble_bg')
-            canvas.create_rectangle(0, r, cw, ch-r, fill=bg, outline=bg, tags='bubble_bg')
+            self._draw_rounded_rect(canvas, cw, ch, canvas._bubble_r, canvas._bubble_bg, 'bubble_bg')
 
         _draw(c, w, h)
         tid = c.create_text(pad_x, pad_y, text=text, fill=fg_color,
@@ -839,18 +843,7 @@ class MainPanel:
         h = th_h + canvas._bubble_pady * 2
         canvas.configure(width=w, height=h)
         canvas.delete('bubble_bg')
-        r = canvas._bubble_r
-        bg = canvas._bubble_bg
-        canvas.create_arc(0, 0, r*2, r*2, start=90, extent=90,
-            fill=bg, outline=bg, tags='bubble_bg')
-        canvas.create_arc(w-r*2, 0, w, r*2, start=0, extent=90,
-            fill=bg, outline=bg, tags='bubble_bg')
-        canvas.create_arc(0, h-r*2, r*2, h, start=180, extent=90,
-            fill=bg, outline=bg, tags='bubble_bg')
-        canvas.create_arc(w-r*2, h-r*2, w, h, start=270, extent=90,
-            fill=bg, outline=bg, tags='bubble_bg')
-        canvas.create_rectangle(r, 0, w-r, h, fill=bg, outline=bg, tags='bubble_bg')
-        canvas.create_rectangle(0, r, w, h-r, fill=bg, outline=bg, tags='bubble_bg')
+        self._draw_rounded_rect(canvas, w, h, canvas._bubble_r, canvas._bubble_bg, 'bubble_bg')
         canvas.tag_raise(canvas._text_id)
         canvas.itemconfigure(canvas._text_id, text=new_text)
 
@@ -1506,6 +1499,9 @@ class MainPanel:
 
         bm_ids = {x['id'] for x in self._storage.list_items('bookmarks')}
         rl_ids = {x['id'] for x in self._storage.list_items('read_later')}
+        canvas_w = self._news_canvas.winfo_width()
+        _toggle_bm = self._make_toggle_handler('bookmarks', '🔖', '📌')
+        _toggle_rl = self._make_toggle_handler('read_later', '⏰', '✅')
 
         grid = tk.Frame(self._news_inner, bg=th['BG_CONTENT'])
         grid.pack(fill=tk.X, padx=14, pady=10)
@@ -1561,7 +1557,7 @@ class MainPanel:
                     num_canvas.create_text(11, 11, text=str(i+1),
                                            fill=rank_color, font=('PingFang SC', 10))
 
-                col_w = max(160, (self._news_canvas.winfo_width() - 28) // cols - 50)
+                col_w = max(160, (canvas_w - 28) // cols - 50)
                 title_lbl = tk.Label(row, text=item['title'],
                                      bg=th['BG_CARD'], fg=th['FG_MAIN'],
                                      font=('PingFang SC', 11),
@@ -1593,8 +1589,6 @@ class MainPanel:
                                   padx=4, pady=8)
                 rl_btn.pack(side=tk.RIGHT, padx=(0, 0))
 
-                _toggle_bm = self._make_toggle_handler('bookmarks', '🔖', '📌')
-                _toggle_rl = self._make_toggle_handler('read_later', '⏰', '✅')
                 bm_btn.bind('<Button-1>',
                     lambda e, h=_toggle_bm, btn=bm_btn, sid=saved_item, iid=item_id:
                         h(e, btn=btn, sid=sid, iid=iid))
