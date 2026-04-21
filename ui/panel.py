@@ -20,6 +20,7 @@ from data.pet import PetStats
 from services.news import get_news, parse_news, send_notification
 from services.ai import translate_titles_with_claude
 import services.notes as notes_service
+import services.chat_history as chat_history_service
 
 
 class MainPanel:
@@ -49,7 +50,7 @@ class MainPanel:
         self.win = None
         self._news_loaded = False
         self._theme_mode = 'light'
-        self._chat_sessions = []
+        self._chat_sessions = chat_history_service.load_sessions()
         self._current_session_id = None
         self._storage = StorageRepository(BOOKMARKS_FILE)
         self._news_current_view = 'feed'   # 'feed' | 'bookmarks' | 'read_later'
@@ -740,6 +741,7 @@ class MainPanel:
                 if role == 'user':
                     sess['title'] = text[:20] + ('…' if len(text) > 20 else '')
                     break
+            chat_history_service.save_session(sess)
 
     def _refresh_history_btn(self):
         th = THEMES[self._theme_mode]
