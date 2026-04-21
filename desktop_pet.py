@@ -2754,9 +2754,7 @@ class DesktopPet:
         self.root = tk.Tk()
         self.root.overrideredirect(True)
         self.root.attributes('-topmost', True)
-        _TRANS = 'systemTransparent'
-        self.root.configure(bg=_TRANS)
-        self.root.attributes('-transparent', True)
+        self.root.configure(bg='systemTransparent')
 
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
@@ -2813,11 +2811,12 @@ class DesktopPet:
         self._menu.add_command(label='❌ 退出',       command=self.root.quit)
 
         self._animate()
-        # 延迟 200ms 等窗口渲染完成后设置真正透明
         self.root.after(200, self._fix_pet_transparent)
+        # 每 2 秒重新强制置顶，防止全屏应用切换时被遮挡
+        self.root.after(2000, self._keep_on_top)
 
-    def _fix_pet_transparent(self):
-        """用 ctypes NSWindow API 将宠物窗口设为真正透明（无白色背景）。"""
+    def _get_nswindow(self):
+        """找到宠物对应的 NSWindow（styleMask==14），返回 (objc, sel, w) 或 None。"""
         try:
             objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.dylib')
             objc.objc_getClass.restype = ctypes.c_void_p
@@ -2833,46 +2832,76 @@ class DesktopPet:
                 objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
                 return objc.objc_msgSend(obj, sel(sel_name))
 
-            def msg_long(obj, sel_name):
-                objc.objc_msgSend.restype = ctypes.c_long
-                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-                return objc.objc_msgSend(obj, sel(sel_name))
-
-            def msg_bool(obj, sel_name, val):
-                objc.objc_msgSend.restype = None
-                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool]
-                objc.objc_msgSend(obj, sel(sel_name), ctypes.c_bool(val))
-
-            def msg_obj(obj, sel_name, arg):
-                objc.objc_msgSend.restype = None
-                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-                objc.objc_msgSend(obj, sel(sel_name), arg)
-
-            NSApp_cls = objc.objc_getClass(b'NSApplication')
-            NSApp = msg0(NSApp_cls, 'sharedApplication')
+            NSApp = msg0(objc.objc_getClass(b'NSApplication'), 'sharedApplication')
             windows = msg0(NSApp, 'windows')
-            count = msg_long(windows, 'count')
+            objc.objc_msgSend.restype = ctypes.c_long
+            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            count = objc.objc_msgSend(windows, sel('count'))
 
-            NSColor_cls = objc.objc_getClass(b'NSColor')
-            clear_color = msg0(NSColor_cls, 'clearColor')
-
-            # 只对宠物窗口（overrideredirect，styleMask=14）操作，不碰 MainPanel
-            pet_win_id = self.root.winfo_id()
             for i in range(count):
                 objc.objc_msgSend.restype = ctypes.c_void_p
                 objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
                 w = objc.objc_msgSend(windows, sel('objectAtIndex:'), ctypes.c_ulong(i))
-                # 获取 windowNumber 与 tkinter winfo_id 对比
-                objc.objc_msgSend.restype = ctypes.c_long
+                objc.objc_msgSend.restype = ctypes.c_ulong
                 objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-                wnum = objc.objc_msgSend(w, sel('windowNumber'))
-                if wnum == pet_win_id:
-                    msg_bool(w, 'setOpaque:', False)
-                    msg_obj(w, 'setBackgroundColor:', clear_color)
-                    msg0(w, 'display')
-                    break
+                if objc.objc_msgSend(w, sel('styleMask')) == 14:
+                    return objc, sel, w
         except Exception:
             pass
+        return None
+
+    def _fix_pet_transparent(self):
+        """设置透明背景 + NSScreenSaverWindowLevel 置顶（高于全屏应用）。"""
+        result = self._get_nswindow()
+        if not result:
+            return
+        objc, sel, w = result
+        try:
+            # 透明背景
+            NSColor_cls = objc.objc_getClass(b'NSColor')
+            objc.objc_msgSend.restype = ctypes.c_void_p
+            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            clear = objc.objc_msgSend(NSColor_cls, sel('clearColor'))
+
+            objc.objc_msgSend.restype = None
+            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool]
+            objc.objc_msgSend(w, sel('setOpaque:'), ctypes.c_bool(False))
+
+            objc.objc_msgSend.restype = None
+            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+            objc.objc_msgSend(w, sel('setBackgroundColor:'), clear)
+
+            # NSScreenSaverWindowLevel=1000，高于全屏应用（kCGFloatingWindowLevel=5）
+            objc.objc_msgSend.restype = None
+            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long]
+            objc.objc_msgSend(w, sel('setLevel:'), ctypes.c_long(1000))
+
+            # 让窗口出现在所有 Space（包括全屏应用的 Space）
+            # NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
+            # NSWindowCollectionBehaviorStationary = 1 << 4
+            collection_behavior = (1 << 0) | (1 << 4)
+            objc.objc_msgSend.restype = None
+            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
+            objc.objc_msgSend(w, sel('setCollectionBehavior:'), ctypes.c_ulong(collection_behavior))
+
+            objc.objc_msgSend.restype = ctypes.c_void_p
+            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            objc.objc_msgSend(w, sel('display'))
+        except Exception:
+            pass
+
+    def _keep_on_top(self):
+        """每 2 秒重置 level，防止全屏切换后被压到底层。"""
+        result = self._get_nswindow()
+        if result:
+            objc, sel, w = result
+            try:
+                objc.objc_msgSend.restype = None
+                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long]
+                objc.objc_msgSend(w, sel('setLevel:'), ctypes.c_long(1000))
+            except Exception:
+                pass
+        self.root.after(2000, self._keep_on_top)
 
     def set_emoji(self, em):
         """MainPanel 调用此方法反映心情；映射到小猫表情状态。"""
@@ -3328,23 +3357,27 @@ class DesktopPet:
         if self._bouncing:
             p = self._bounce_frame / 10
             offset_y = int(-14 * math.sin(p * math.pi) * (self.w / 96))
-            scale = 1.0 + 0.12 * math.sin(p * math.pi)
             self._bounce_frame += 1
             if self._bounce_frame > 10:
                 self._bouncing = False
         elif self._hovering:
             offset_y = int(-3 * (self.w / 96))
-            scale = 1.08
         else:
             offset_y = int(-4 * math.sin(2 * math.pi * t) * (self.w / 96))
-            scale = 1.0
 
-        if self._cat_frames:
-            self._draw_cat_pillow(offset_y)
-        else:
-            self._draw_cat(offset_y, scale)
+        self._draw_emoji(offset_y)
         self._anim_frame += 1
         self.root.after(self.ANIM_INTERVAL, self._animate)
+
+    def _draw_emoji(self, offset_y):
+        self.canvas.delete('all')
+        emoji = self.settings.get('pet_emoji', '🐱')
+        font_size = max(20, int(self.w * 0.6))
+        cx = self.w // 2
+        cy = self.h // 2 + offset_y
+        self.canvas.create_text(cx, cy, text=emoji,
+                                font=('Apple Color Emoji', font_size),
+                                anchor='center')
 
     def _on_press(self, e):
         self._drag_x, self._drag_y = e.x, e.y
