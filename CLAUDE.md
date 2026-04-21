@@ -11,27 +11,23 @@ Critter 是一个 macOS 桌面宠物应用，常驻桌面右下角作为悬浮 e
 
 - **Tech Stack**: Python 3.11 + tkinter — 不引入第三方 UI 库，保持零依赖安装
 - **Python Path**: 必须用 `/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11`，系统 tkinter 有 bug
-- **单文件架构**: 当前所有代码在 `desktop_pet.py`，新功能继续在此文件扩展，不拆分模块（避免打破现有启动方式）
-- **数据存储**: 当前里程碑用 JSON 文件，但新增数据访问必须通过 Repository 类封装
+- **模块化架构**: 代码已拆分为 `config.py`、`data/`、`services/`、`ui/` 四个模块，入口为 `main.py`
+- **数据存储**: 用 JSON 文件，数据访问必须通过 Repository 类封装
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->
 ## Technology Stack
 
 ## Languages
-- Python 3.11.9 - All application logic, GUI, HTTP server, subprocess orchestration
-- HTML5 + CSS3 + Vanilla JavaScript - Web-based pet variant (`web-pet/index.html`)
+- Python 3.11.9 - All application logic, GUI, subprocess orchestration
 ## Runtime
-- CPython 3.11.9 (invoked via `python3` at `/usr/local/bin/python3`)
+- CPython 3.11.9 at `/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11`
 - None — project uses only Python standard library; no `requirements.txt`, no virtual environment
 ## Frameworks
 - `tkinter` (stdlib) — entire desktop UI: windows, canvas drawing, scrolled text, menus, animations
 - `tkinter.scrolledtext` (stdlib) — used for scrolled text areas
-- `http.server.SimpleHTTPRequestHandler` (stdlib) — serves `index.html` and JSON API endpoints
-- `socketserver.TCPServer` (stdlib) with `allow_reuse_address = True` — listens on port `8765`
 - Not applicable — no test framework present
-- No build step; runs directly with `python3 desktop_pet.py`
-- `start.sh` — bash launcher for the web-pet variant (starts `server.py`, opens browser)
+- No build step; runs directly with `python3.11 main.py`
 ## Key Dependencies
 - `ctypes` (stdlib) — loads `/usr/lib/libobjc.dylib` to call macOS Objective-C runtime APIs directly for window-level management
 - `subprocess` (stdlib) — spawns the Claude CLI process (`/opt/homebrew/bin/claude`) for streaming AI chat, runs `osascript` for macOS notifications, opens URLs via `open`, and executes the external news fetch script
@@ -47,11 +43,9 @@ Critter 是一个 macOS 桌面宠物应用，常驻桌面右下角作为悬浮 e
 - No `.env` file; configuration is stored in `settings.json`
 - `settings.json` at `/Users/maxinyue09/.openclaw/workspace/desktop-pet/settings.json` holds:
 - `NEWS_SCRIPT` → `~/.openclaw/workspace/skills/news-digest/scripts/fetch_news.py`
-- `CACHE_FILE`  → `~/.openclaw/workspace/desktop-pet/web-pet/news_cache.json`
 - `NOTE_FILE`   → `~/.openclaw/workspace/desktop-pet/notes.json`
 - `SETTINGS_FILE` → `~/.openclaw/workspace/desktop-pet/settings.json`
 - `CACHE_TTL`   → `1800` seconds (30 min)
-- Web server port hardcoded as `PORT = 8765` in `web-pet/server.py`
 - No build config files
 ## Platform Requirements
 - macOS only (uses `ctypes` against `/usr/lib/libobjc.dylib`, `osascript`, and `open`)
@@ -59,7 +53,6 @@ Critter 是一个 macOS 桌面宠物应用，常驻桌面右下角作为悬浮 e
 - Claude CLI installed at `/opt/homebrew/bin/claude` (Homebrew on Apple Silicon)
 - `tkinter` must be available (included with standard macOS Python installations)
 - No deployment target — local desktop application
-- Web variant accessible at `http://localhost:8765` when `web-pet/server.py` is running
 <!-- GSD:stack-end -->
 
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
@@ -107,58 +100,44 @@ Critter 是一个 macOS 桌面宠物应用，常驻桌面右下角作为悬浮 e
 
 ## Pattern Overview
 - Two distinct window layers: `DesktopPet` (always-on-top, frameless, transparent) owns a `tk.Tk` root; `MainPanel` (normal window, can be covered) is a `tk.Toplevel`
-- All application logic, UI construction, theming, data access, and AI integration live in `desktop_pet.py`
+- Modular architecture: `config.py` (themes/constants), `data/` (storage), `services/` (news/AI), `ui/` (windows)
 - No event bus or MVC separation — UI widgets hold state directly as instance attributes on their owning class
 - Background work (news fetch, AI streaming) is done on daemon threads; GUI updates are scheduled back onto the main thread via `root.after(0, callback)`
 ## Layers
 - Purpose: Persistent always-on-top emoji that accepts clicks and drag
-- Location: `desktop_pet.py`, class `DesktopPet` (line 1941)
+- Location: `ui/pet_window.py`, class `DesktopPet`
 - Contains: Animation loop (`_animate`), drag handling, bounce trigger, context menu, reference to `MainPanel`
-- Depends on: `load_settings()`, `MainPanel`
-- Used by: Entry point `__main__`
+- Depends on: `data/settings.py`, `config.py`, `MainPanel`
+- Used by: Entry point `main.py`
 - Purpose: Full-featured 1024×620 panel with five tabs
-- Location: `desktop_pet.py`, class `MainPanel` (line 192)
+- Location: `ui/panel.py`, class `MainPanel`
 - Contains: Tab build methods, theme switching, chat session management, notes CRUD, news loading/rendering, settings persistence
-- Depends on: `DesktopPet` (back-reference via `self.pet`), global utility functions, `THEMES` dict
+- Depends on: `DesktopPet` (back-reference via `self.pet`), `config.py`, `data/`, `services/`
 - Used by: `DesktopPet.__init__` constructs it; `DesktopPet._on_release` calls `panel.open()`
-- Purpose: JSON I/O, news fetch, macOS notification, Claude translation helper
-- Location: `desktop_pet.py`, lines 87–184 (module-level functions)
-- Contains: `load_json`, `save_json`, `load_settings`, `save_settings`, `load_cache`, `save_cache`, `get_news`, `fetch_news_raw`, `parse_news`, `send_notification`, `_translate_titles_with_claude`
-- Depends on: standard library only (`json`, `subprocess`, `time`, `re`, `os`)
-- Used by: both `MainPanel` and `DesktopPet`
-- Purpose: HTTP API for the web-based pet variant
-- Location: `web-pet/server.py`
-- Contains: `NewsHandler` (GET `/news`, GET `/push`), cache helpers, macOS notification sender
-- Depends on: same external `fetch_news.py` script at `~/.openclaw/workspace/skills/news-digest/scripts/fetch_news.py`
-- Used by: `start.sh` launches it as a background process; `web-pet/index.html` fetches from it
+- Purpose: News fetching, caching, parsing, translation
+- Location: `services/news.py`, `services/ai.py`
+- Purpose: JSON I/O, pet stats, bookmarks
+- Location: `data/settings.py`, `data/pet_stats.py`, `data/repository.py`
 ## Data Flow
 - Theme state: `MainPanel._theme_mode` (string `'light'`/`'dark'`); theme change triggers `_recolor_widget` tree walk
 - Chat session state: `MainPanel._chat_sessions` (in-memory list of dicts), `_current_session_id`; sessions are NOT persisted to disk
 - Settings: `DesktopPet.settings` dict; persisted to `settings.json` on save actions
-- News: `MainPanel._news_sections_cache` (in-memory); persisted raw text to `web-pet/news_cache.json`
+- News: `MainPanel._news_sections_cache` (in-memory); cached to `news_cache.json`
 - Pet animation state: float fields `_anim_frame`, `_bouncing`, `_bounce_frame`, `_hovering` on `DesktopPet`
 ## Key Abstractions
 - Purpose: All color tokens for dark and light modes keyed by semantic name (`BG_WIN`, `FG_ACCENT`, etc.)
-- Location: `desktop_pet.py` lines 26–67
-- Pattern: `th = THEMES[self._theme_mode]` at the top of every build/recolor method; widget colors are set from `th['KEY']`
+- Location: `config.py`, `THEMES` dict
+- Pattern: `th = THEMES[self._theme_mode]` at the top of every build/recolor method
 - Purpose: Chat message bubbles with rounded corners drawn manually on `tk.Canvas`
-- Location: `MainPanel._rounded_bubble()` (line 977), `MainPanel._update_bubble()` (line 1027)
-- Pattern: Canvas items tagged `'bubble_bg'`; text item id stored as `canvas._text_id`; bubble color stored as `canvas._bubble_bg` for theme-aware recoloring
+- Location: `MainPanel._rounded_bubble()`, `MainPanel._update_bubble()`
+- Pattern: Canvas items tagged `'bubble_bg'`; text item id stored as `canvas._text_id`
 - Purpose: Five content tabs stacked in a `grid` layout; `tkraise()` brings the active frame forward
-- Location: `MainPanel._build()` lines 362–382, `MainPanel._switch_tab()` lines 425–449
-- Pattern: `self._tab_frames[key].tkraise()` — no frame is destroyed between switches, preserving scroll state
-- Purpose: Avoids re-fetching on column-count reflow; re-renders from `_news_sections_cache` on window resize
-- Location: `MainPanel._news_canvas_last_cols` + `_news_sections_cache`, lines 1308–1316
+- Location: `MainPanel._build()`, `MainPanel._switch_tab()`
+- Pattern: `self._tab_frames[key].tkraise()` — no frame is destroyed between switches
 ## Entry Points
-- Location: `desktop_pet.py` line 2055–2056
-- Triggers: `python3 desktop_pet.py` (or via Finder / `~/start.sh`)
+- Location: `main.py`
+- Triggers: `python3.11 main.py`
 - Responsibilities: Instantiates `DesktopPet`, which sets up the transparent always-on-top window, the `MainPanel`, and calls `root.mainloop()`
-- Location: `web-pet/server.py` line 172–173
-- Triggers: `python3 web-pet/server.py` or `./start.sh`
-- Responsibilities: Starts HTTP server on port 8765 serving `index.html`, `/news`, `/push` endpoints
-- Location: `news_pet.py` line 12 (`NewsPet`) + bottom-of-file run
-- Triggers: `python3 news_pet.py`
-- Responsibilities: Tiny frameless 70×70 emoji window with click-to-menu; news fetch only; no panel
 ## Error Handling
 - `load_json` / `save_json`: return `default` on any exception, no logging
 - `_stream_pet_ai`: catches all exceptions, sets `accumulated = f'呜，出了点小问题：{e}'` to display in bubble
