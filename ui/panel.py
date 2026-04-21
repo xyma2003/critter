@@ -9,7 +9,7 @@ import os
 import re
 import subprocess
 import random
-import math
+import hashlib
 
 from config import (THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE,
                     BG_DARK, BG_PANEL, BG_CARD, BG_HOVER, FG_MAIN, FG_DIM,
@@ -26,6 +26,7 @@ import services.chat_history as chat_history_service
 class MainPanel:
     WIN_W, WIN_H = 1024, 620
     NAV_W = 80
+    _NEWS_COL_MIN_W = 280
 
     GREETINGS = [
         ('今天还开心吗？', '不管怎样，我在这里陪着你 🐱'),
@@ -427,76 +428,10 @@ class MainPanel:
         welcome_input_wrap.place(relx=0.5, rely=1.0, anchor='s',
                                  relwidth=0.72, y=-24)
 
-        _ibar_h = 44
-        _btn_r  = 15
-        _btn_margin = 8
-
-        wib = tk.Canvas(welcome_input_wrap, height=_ibar_h,
-            bg=th['BG_CONTENT'], highlightthickness=0, bd=0)
-        wib.pack(fill=tk.X)
-
-        def _draw_pill(canvas, fill_color):
-            canvas.delete('pill')
-            w = canvas.winfo_width() or 600
-            h = canvas.winfo_height() or _ibar_h
-            r = h // 2
-            canvas.create_arc(0, 0, r*2, r*2, start=90, extent=90,
-                fill=fill_color, outline=fill_color, tags='pill')
-            canvas.create_arc(w-r*2, 0, w, r*2, start=0, extent=90,
-                fill=fill_color, outline=fill_color, tags='pill')
-            canvas.create_arc(0, h-r*2, r*2, h, start=180, extent=90,
-                fill=fill_color, outline=fill_color, tags='pill')
-            canvas.create_arc(w-r*2, h-r*2, w, h, start=270, extent=90,
-                fill=fill_color, outline=fill_color, tags='pill')
-            canvas.create_rectangle(r, 0, w-r, h,
-                fill=fill_color, outline=fill_color, tags='pill')
-            canvas.create_rectangle(0, r, w, h-r,
-                fill=fill_color, outline=fill_color, tags='pill')
-
-        def _draw_send_btn_w(canvas, color):
-            canvas.delete('sendbtn')
-            w = canvas.winfo_width() or 600
-            h = canvas.winfo_height() or _ibar_h
-            cx = w - _btn_r - _btn_margin
-            cy = h // 2
-            canvas.create_oval(cx-_btn_r, cy-_btn_r, cx+_btn_r, cy+_btn_r,
-                fill=color, outline=color, tags='sendbtn')
-            canvas.create_text(cx, cy, text='↑',
-                fill=th['BG_WIN'], font=('PingFang SC', 13, 'bold'), tags='sendbtn')
-
-        self._welcome_input = tk.Text(wib,
-            bg=th['BG_CARD'], fg=th['FG_MAIN'],
-            font=('PingFang SC', 13), relief=tk.FLAT,
-            padx=4, pady=0, wrap=tk.WORD, height=1,
-            insertbackground=th['FG_ACCENT'],
-            selectbackground=th['BG_SEL'],
-            borderwidth=0, highlightthickness=0)
-        _wi_id = wib.create_window(
-            _ibar_h // 2, _ibar_h // 2, anchor='w', window=self._welcome_input)
-
-        def _refresh_wib(e=None):
-            w = wib.winfo_width() or 600
-            _draw_pill(wib, th['BG_CARD'])
-            _draw_send_btn_w(wib, th['FG_ACCENT'])
-            text_w = max(w - _ibar_h // 2 - _btn_r * 2 - _btn_margin * 2 - 8, 60)
-            wib.itemconfig(_wi_id, width=text_w)
-            wib.tag_raise('sendbtn')
-
-        wib.bind('<Configure>', _refresh_wib)
-        wib.after(10, _refresh_wib)
-
-        wib.tag_bind('sendbtn', '<Button-1>', lambda e: self._send_chat())
-        wib.configure(cursor='arrow')
-        wib.tag_bind('sendbtn', '<Enter>', lambda e: wib.configure(cursor='hand2'))
-        wib.tag_bind('sendbtn', '<Leave>', lambda e: wib.configure(cursor='arrow'))
-
-        self._welcome_input.bind('<Return>', self._on_chat_enter)
-        self._set_placeholder(self._welcome_input, '说点什么，开始聊天吧…', th)
-
-        wib._refresh      = _refresh_wib
-        wib._draw_sendbtn = _draw_send_btn_w
-        self._wib         = wib
-        send_w_canvas     = wib
+        self._wib, self._welcome_input = self._build_input_bar(
+            welcome_input_wrap, th['BG_CONTENT'], th,
+            placeholder='说点什么，开始聊天吧…')
+        send_w_canvas = self._wib
 
         # ══ 聊天页 ══
         self._chat_frame = tk.Frame(frame, bg=th['BG_CONTENT'])
@@ -566,78 +501,87 @@ class MainPanel:
         self._chat_inner.bind('<MouseWheel>', _scroll)
 
         # 聊天页输入栏
-        _cibar_h  = 44
-        _cbtn_r   = 15
-        _cbtn_margin = 8
+        self._cib, self._chat_input = self._build_input_bar(
+            chat_input_bar, th['BG_TOOLBAR'], th,
+            pack_kwargs={'padx': 16, 'pady': 10})
+        send_c_canvas = self._cib
 
-        cib = tk.Canvas(chat_input_bar, height=_cibar_h,
-            bg=th['BG_TOOLBAR'], highlightthickness=0, bd=0)
-        cib.pack(fill=tk.X, padx=16, pady=10)
+        self._send_btns = [send_w_canvas, send_c_canvas]
 
-        def _draw_pill_c(canvas, fill_color):
-            canvas.delete('pill')
-            w = canvas.winfo_width() or 600
-            h = canvas.winfo_height() or _cibar_h
+        return frame
+
+    def _build_input_bar(self, parent, bg_color, th, pack_kwargs=None, placeholder=None):
+        """Build a pill-shaped Canvas input bar. Returns (canvas, text_widget)."""
+        BAR_H      = 44
+        BTN_R      = 15
+        BTN_MARGIN = 8
+
+        canvas = tk.Canvas(parent, height=BAR_H,
+                           bg=bg_color, highlightthickness=0, bd=0)
+        canvas.pack(fill=tk.X, **(pack_kwargs or {}))
+
+        def _draw_pill(c, fill_color):
+            c.delete('pill')
+            w = c.winfo_width() or 600
+            h = c.winfo_height() or BAR_H
             r = h // 2
-            canvas.create_arc(0, 0, r*2, r*2, start=90, extent=90,
+            c.create_arc(0, 0, r*2, r*2, start=90, extent=90,
                 fill=fill_color, outline=fill_color, tags='pill')
-            canvas.create_arc(w-r*2, 0, w, r*2, start=0, extent=90,
+            c.create_arc(w-r*2, 0, w, r*2, start=0, extent=90,
                 fill=fill_color, outline=fill_color, tags='pill')
-            canvas.create_arc(0, h-r*2, r*2, h, start=180, extent=90,
+            c.create_arc(0, h-r*2, r*2, h, start=180, extent=90,
                 fill=fill_color, outline=fill_color, tags='pill')
-            canvas.create_arc(w-r*2, h-r*2, w, h, start=270, extent=90,
+            c.create_arc(w-r*2, h-r*2, w, h, start=270, extent=90,
                 fill=fill_color, outline=fill_color, tags='pill')
-            canvas.create_rectangle(r, 0, w-r, h,
+            c.create_rectangle(r, 0, w-r, h,
                 fill=fill_color, outline=fill_color, tags='pill')
-            canvas.create_rectangle(0, r, w, h-r,
+            c.create_rectangle(0, r, w, h-r,
                 fill=fill_color, outline=fill_color, tags='pill')
 
-        def _draw_send_btn_c(canvas, color):
-            canvas.delete('sendbtn')
-            w = canvas.winfo_width() or 600
-            h = canvas.winfo_height() or _cibar_h
-            cx = w - _cbtn_r - _cbtn_margin
+        def _draw_send_btn(c, color):
+            c.delete('sendbtn')
+            w = c.winfo_width() or 600
+            h = c.winfo_height() or BAR_H
+            cx = w - BTN_R - BTN_MARGIN
             cy = h // 2
-            canvas.create_oval(cx-_cbtn_r, cy-_cbtn_r, cx+_cbtn_r, cy+_cbtn_r,
+            c.create_oval(cx-BTN_R, cy-BTN_R, cx+BTN_R, cy+BTN_R,
                 fill=color, outline=color, tags='sendbtn')
-            canvas.create_text(cx, cy, text='↑',
+            c.create_text(cx, cy, text='↑',
                 fill=th['BG_WIN'], font=('PingFang SC', 13, 'bold'), tags='sendbtn')
 
-        self._chat_input = tk.Text(cib,
+        txt = tk.Text(canvas,
             bg=th['BG_CARD'], fg=th['FG_MAIN'],
             font=('PingFang SC', 13), relief=tk.FLAT,
             padx=4, pady=0, wrap=tk.WORD, height=1,
             insertbackground=th['FG_ACCENT'],
             selectbackground=th['BG_SEL'],
             borderwidth=0, highlightthickness=0)
-        _ci_id = cib.create_window(
-            _cibar_h // 2, _cibar_h // 2, anchor='w', window=self._chat_input)
-        self._chat_input.bind('<Return>', self._on_chat_enter)
+        txt_id = canvas.create_window(BAR_H // 2, BAR_H // 2, anchor='w', window=txt)
 
-        def _refresh_cib(e=None):
-            w = cib.winfo_width() or 600
-            _draw_pill_c(cib, th['BG_CARD'])
-            _draw_send_btn_c(cib, th['FG_ACCENT'])
-            text_w = max(w - _cibar_h // 2 - _cbtn_r * 2 - _cbtn_margin * 2 - 8, 60)
-            cib.itemconfig(_ci_id, width=text_w)
-            cib.tag_raise('sendbtn')
+        def _refresh(e=None):
+            w = canvas.winfo_width() or 600
+            _draw_pill(canvas, th['BG_CARD'])
+            _draw_send_btn(canvas, th['FG_ACCENT'])
+            text_w = max(w - BAR_H // 2 - BTN_R * 2 - BTN_MARGIN * 2 - 8, 60)
+            canvas.itemconfig(txt_id, width=text_w)
+            canvas.tag_raise('sendbtn')
 
-        cib.bind('<Configure>', _refresh_cib)
-        cib.after(10, _refresh_cib)
+        canvas.bind('<Configure>', _refresh)
+        canvas.after(10, _refresh)
 
-        cib.tag_bind('sendbtn', '<Button-1>', lambda e: self._send_chat())
-        cib.configure(cursor='arrow')
-        cib.tag_bind('sendbtn', '<Enter>', lambda e: cib.configure(cursor='hand2'))
-        cib.tag_bind('sendbtn', '<Leave>', lambda e: cib.configure(cursor='arrow'))
+        canvas.tag_bind('sendbtn', '<Button-1>', lambda e: self._send_chat())
+        canvas.configure(cursor='arrow')
+        canvas.tag_bind('sendbtn', '<Enter>', lambda e: canvas.configure(cursor='hand2'))
+        canvas.tag_bind('sendbtn', '<Leave>', lambda e: canvas.configure(cursor='arrow'))
 
-        cib._refresh      = _refresh_cib
-        cib._draw_sendbtn = _draw_send_btn_c
-        self._cib         = cib
-        send_c_canvas     = cib
+        txt.bind('<Return>', self._on_chat_enter)
 
-        self._send_btns = [send_w_canvas, send_c_canvas]
+        if placeholder:
+            self._set_placeholder(txt, placeholder, th)
 
-        return frame
+        canvas._refresh      = _refresh
+        canvas._draw_sendbtn = _draw_send_btn
+        return canvas, txt
 
     def _set_send_btns_color(self, color, enabled):
         for canvas in getattr(self, '_send_btns', []):
@@ -1128,8 +1072,7 @@ class MainPanel:
             except Exception:
                 raw = out
             # 从 raw 里提取第一个 JSON 对象
-            import re as _re
-            m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+            m = re.search(r'\{.*\}', raw, re.DOTALL)
             if not m:
                 return
             updates = json.loads(m.group())
@@ -1292,7 +1235,7 @@ class MainPanel:
         self._news_canvas_last_cols = 0
         def _on_canvas_resize(e):
             canvas.itemconfig(self._news_canvas_win, width=e.width)
-            cols = max(1, e.width // 280)
+            cols = max(1, e.width // self._NEWS_COL_MIN_W)
             if cols != self._news_canvas_last_cols:
                 self._news_canvas_last_cols = cols
                 if hasattr(self, '_news_sections_cache') and self._news_sections_cache:
@@ -1404,8 +1347,7 @@ class MainPanel:
             # Open link on row click
             def _click(e, link=item.get('link')):
                 if link:
-                    import subprocess as _sp
-                    _sp.Popen(['open', link])
+                    subprocess.Popen(['open', link])
             row.bind('<Button-1>', _click)
             text_col.bind('<Button-1>', _click)
 
@@ -1497,12 +1439,17 @@ class MainPanel:
         def run():
             content, cached, ts = get_news(force=force)
             sections = parse_news(content)
-            for sec in sections:
+            google_titles = []
+            google_refs = []
+            for i, sec in enumerate(sections):
                 if 'Google' in sec.get('source', '') and sec['items']:
-                    titles = [it['title'] for it in sec['items']]
-                    translated = translate_titles_with_claude(titles)
-                    for it, tr in zip(sec['items'], translated):
-                        it['title'] = tr
+                    for j, it in enumerate(sec['items']):
+                        google_titles.append(it['title'])
+                        google_refs.append((i, j))
+            if google_titles:
+                translated = translate_titles_with_claude(google_titles)
+                for (i, j), tr in zip(google_refs, translated):
+                    sections[i]['items'][j]['title'] = tr
             tag = '缓存' if cached else '最新'
             tstr = time.strftime('%H:%M', time.localtime(ts))
             status = f'{tstr} [{tag}]'
@@ -1526,6 +1473,18 @@ class MainPanel:
                 lambda: self._load_news_async(force=True)
             )
 
+    def _make_toggle_handler(self, collection, icon_off, icon_on):
+        """Return a <Button-1> handler that toggles item membership in `collection`."""
+        def _handler(e, btn=None, sid=None, iid=None):
+            ids = {x['id'] for x in self._storage.list_items(collection)}
+            if iid in ids:
+                self._storage.remove(collection, iid)
+                btn.configure(text=icon_off)
+            else:
+                self._storage.add(collection, sid)
+                btn.configure(text=icon_on)
+        return _handler
+
     def _render_news(self, sections, status, cols=None):
         th = THEMES[self._theme_mode]
         self._news_status.configure(text=status)
@@ -1536,7 +1495,7 @@ class MainPanel:
 
         if cols is None:
             w = self._news_canvas.winfo_width()
-            cols = max(1, w // 280) if w > 1 else 2
+            cols = max(1, w // self._NEWS_COL_MIN_W) if w > 1 else 2
 
         SOURCE_ICONS = {
             'Google Trends': '🔍',
@@ -1545,17 +1504,17 @@ class MainPanel:
         }
         RANK_COLORS = ['#ef5350', '#ff7043', '#ffa726']
 
+        bm_ids = {x['id'] for x in self._storage.list_items('bookmarks')}
+        rl_ids = {x['id'] for x in self._storage.list_items('read_later')}
+
         grid = tk.Frame(self._news_inner, bg=th['BG_CONTENT'])
         grid.pack(fill=tk.X, padx=14, pady=10)
         for c in range(cols):
             grid.columnconfigure(c, weight=1)
 
-        import hashlib as _hashlib
-        import time as _time
-
         def _make_item_id(item):
             """Stable ID: hash of title + source."""
-            return _hashlib.md5(
+            return hashlib.md5(
                 (item.get('title', '') + item.get('source', '')).encode()
             ).hexdigest()[:12]
 
@@ -1617,12 +1576,10 @@ class MainPanel:
                     'title': item.get('title', ''),
                     'link': item.get('link', ''),
                     'source': sec.get('source', ''),
-                    'saved_at': _time.strftime('%Y-%m-%dT%H:%M:%S'),
+                    'saved_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
                 }
 
                 # Check current state (already bookmarked or read-later?)
-                bm_ids = {x['id'] for x in self._storage.list_items('bookmarks')}
-                rl_ids = {x['id'] for x in self._storage.list_items('read_later')}
                 bm_icon = '📌' if item_id in bm_ids else '🔖'
                 rl_icon = '✅' if item_id in rl_ids else '⏰'
 
@@ -1636,26 +1593,14 @@ class MainPanel:
                                   padx=4, pady=8)
                 rl_btn.pack(side=tk.RIGHT, padx=(0, 0))
 
-                def _toggle_bookmark(e, btn=bm_btn, sid=saved_item, iid=item_id):
-                    ids = {x['id'] for x in self._storage.list_items('bookmarks')}
-                    if iid in ids:
-                        self._storage.remove('bookmarks', iid)
-                        btn.configure(text='🔖')
-                    else:
-                        self._storage.add('bookmarks', sid)
-                        btn.configure(text='📌')
-
-                def _toggle_read_later(e, btn=rl_btn, sid=saved_item, iid=item_id):
-                    ids = {x['id'] for x in self._storage.list_items('read_later')}
-                    if iid in ids:
-                        self._storage.remove('read_later', iid)
-                        btn.configure(text='⏰')
-                    else:
-                        self._storage.add('read_later', sid)
-                        btn.configure(text='✅')
-
-                bm_btn.bind('<Button-1>', _toggle_bookmark)
-                rl_btn.bind('<Button-1>', _toggle_read_later)
+                _toggle_bm = self._make_toggle_handler('bookmarks', '🔖', '📌')
+                _toggle_rl = self._make_toggle_handler('read_later', '⏰', '✅')
+                bm_btn.bind('<Button-1>',
+                    lambda e, h=_toggle_bm, btn=bm_btn, sid=saved_item, iid=item_id:
+                        h(e, btn=btn, sid=sid, iid=iid))
+                rl_btn.bind('<Button-1>',
+                    lambda e, h=_toggle_rl, btn=rl_btn, sid=saved_item, iid=item_id:
+                        h(e, btn=btn, sid=sid, iid=iid))
 
                 # Hover backgrounds for action buttons
                 bm_btn.bind('<Enter>', lambda e, b=bm_btn: b.configure(bg=th['BG_HOVER']))
@@ -1941,7 +1886,6 @@ class MainPanel:
             self.win.after(duration_ms, _restore)
 
     def _feed(self):
-        import random
         hunger = self.stats.hunger
         if hunger < 30:
             bucket = 'starving'
@@ -1956,7 +1900,6 @@ class MainPanel:
         self.pet.trigger_bounce()
 
     def _play(self):
-        import random
         energy = self.stats.energy
         if energy < 30:
             bucket = 'tired'
@@ -1971,7 +1914,6 @@ class MainPanel:
         self.pet.trigger_bounce()
 
     def _sleep(self):
-        import random
         energy = self.stats.energy
         if energy < 25:
             bucket = 'exhausted'
@@ -2041,12 +1983,6 @@ class MainPanel:
 
         return frame
 
-    def _notes_load_all(self):
-        return notes_service.load_all()
-
-    def _notes_save_all(self, notes):
-        notes_service.save_all(notes)
-
     def _notes_show_list(self):
         th = THEMES[self._theme_mode]
         self._notes_text.pack_forget()
@@ -2059,7 +1995,7 @@ class MainPanel:
         if self._notes_list_frame:
             self._notes_list_frame.destroy()
 
-        notes = self._notes_load_all()
+        notes = notes_service.load_all()
 
         outer = tk.Frame(self._notes_body, bg=th['BG_CONTENT'])
         outer.pack(fill=tk.BOTH, expand=True)
@@ -2153,7 +2089,7 @@ class MainPanel:
 
     def _notes_open_editor(self, note_id):
         th = THEMES[self._theme_mode]
-        notes = self._notes_load_all()
+        notes = notes_service.load_all()
 
         if self._notes_list_frame:
             self._notes_list_frame.pack_forget()
@@ -2186,7 +2122,7 @@ class MainPanel:
         if not content.strip():
             self._notes_status.configure(text='内容为空')
             return
-        notes = self._notes_load_all()
+        notes = notes_service.load_all()
         now = int(time.time())
         if self._notes_current_id is not None:
             for n in notes:
@@ -2198,14 +2134,14 @@ class MainPanel:
             new_id = now
             notes.append({'id': new_id, 'content': content, 'updated': now})
             self._notes_current_id = new_id
-        self._notes_save_all(notes)
+        notes_service.save_all(notes)
         self._notes_status.configure(text=f'已保存 {time.strftime("%H:%M:%S")}')
         self._notes_show_list()
 
     def _notes_delete(self, note_id):
-        notes = self._notes_load_all()
+        notes = notes_service.load_all()
         notes = [n for n in notes if n['id'] != note_id]
-        self._notes_save_all(notes)
+        notes_service.save_all(notes)
         if notes:
             self._notes_show_list()
         else:
