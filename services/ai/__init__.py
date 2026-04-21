@@ -1,5 +1,5 @@
 """
-services/ai.py — Claude CLI 辅助函数
+services/ai — Claude CLI 辅助函数
 """
 import re
 import subprocess

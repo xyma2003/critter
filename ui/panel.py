@@ -15,10 +15,11 @@ from config import (THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE,
                     BG_DARK, BG_PANEL, BG_CARD, BG_HOVER, FG_MAIN, FG_DIM,
                     FG_ACCENT, FG_GREEN, FG_YELLOW, FG_RED, BORDER)
 from data.settings import load_json, save_json, load_settings, save_settings
-from data.repository import StorageRepository
-from data.pet_stats import PetStats
+from data.storage import StorageRepository
+from data.pet import PetStats
 from services.news import get_news, parse_news, send_notification
 from services.ai import translate_titles_with_claude
+import services.notes as notes_service
 
 
 class MainPanel:
@@ -2031,9 +2032,7 @@ class MainPanel:
         self._notes_current_id = None
         self._notes_list_frame = None
 
-        data = load_json(NOTE_FILE, {'notes': []})
-        notes = data.get('notes', [])
-        if notes:
+        if notes_service.load_all():
             self._notes_show_list()
         else:
             self._notes_open_editor(None)
@@ -2041,10 +2040,10 @@ class MainPanel:
         return frame
 
     def _notes_load_all(self):
-        return load_json(NOTE_FILE, {'notes': []}).get('notes', [])
+        return notes_service.load_all()
 
     def _notes_save_all(self, notes):
-        save_json(NOTE_FILE, {'notes': notes})
+        notes_service.save_all(notes)
 
     def _notes_show_list(self):
         th = THEMES[self._theme_mode]

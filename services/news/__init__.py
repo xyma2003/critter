@@ -1,5 +1,5 @@
 """
-services/news.py — 新闻抓取、缓存、解析、通知
+services/news — 新闻抓取、缓存、解析、通知
 """
 import json
 import re

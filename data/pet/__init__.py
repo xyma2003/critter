@@ -1,5 +1,5 @@
 """
-data/pet_stats.py — PetStats：心情 / 饱食 / 精力数值管理
+data/pet — PetStats：心情 / 饱食 / 精力数值管理
 """
 from config import PET_STATS_FILE
 from data.settings import load_json, save_json

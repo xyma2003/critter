@@ -1,5 +1,5 @@
 """
-data/settings.py — JSON 持久化工具函数 + settings 加载/保存
+data/settings — JSON 持久化工具函数 + settings 加载/保存
 """
 import json
 import os

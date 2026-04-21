@@ -5,7 +5,7 @@ import os
 
 # ── 文件路径常量 ──────────────────────────────────────
 NEWS_SCRIPT       = os.path.expanduser("~/.openclaw/workspace/skills/news-digest/scripts/fetch_news.py")
-CACHE_FILE        = os.path.expanduser("~/.openclaw/workspace/desktop-pet/web-pet/news_cache.json")
+CACHE_FILE        = os.path.expanduser("~/.openclaw/workspace/desktop-pet/news_cache.json")
 NOTE_FILE         = os.path.expanduser("~/.openclaw/workspace/desktop-pet/notes.json")
 SETTINGS_FILE     = os.path.expanduser("~/.openclaw/workspace/desktop-pet/settings.json")
 BOOKMARKS_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/bookmarks.json")

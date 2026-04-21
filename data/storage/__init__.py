@@ -1,5 +1,5 @@
 """
-data/repository.py — StorageRepository：书签 / 稍后再看 持久化层
+data/storage — StorageRepository：书签 / 稍后再看 持久化层
 """
 from data.settings import load_json, save_json
 
