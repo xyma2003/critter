@@ -10,7 +10,7 @@ import re
 import subprocess
 import random
 import hashlib
-from config import THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE, CLAUDE_CLI
+from config import THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE, CLAUDE_CLI, WEATHER_FILE
 from data.settings import load_json, save_json, load_settings, save_settings
 from utils.objc import load_objc, get_all_ns_windows, nsstring_to_py, set_collection_behavior
 from data.storage import StorageRepository
@@ -19,6 +19,7 @@ from services.news import get_news, parse_news, send_notification
 from services.ai import translate_titles_with_claude
 import services.notes as notes_service
 import services.chat_history as chat_history_service
+from services.weather import fetch_weather, is_cached, last_fetch_time, get_cached_data, code_to_emoji
 
 
 class MainPanel:
@@ -66,6 +67,10 @@ class MainPanel:
         self._news_collection_frame = None
         self._news_sections_cache = None
         self._last_user_text = ''
+        self._weather_cities = []          # list[str] — loaded from WEATHER_FILE
+        self._weather_selected = None      # str | None — currently displayed city
+        self._weather_loaded = False       # lazy-load flag (mirrors _news_loaded)
+        self._weather_fetching = set()     # set[str] — cities currently being fetched
 
     # ── macOS 窗口层级修复 ────────────────────────────
 
@@ -177,6 +182,7 @@ class MainPanel:
             ('news',     '📰', '新闻'),
             ('pet',      '🐾', '宠物'),
             ('notes',    '📝', '便签'),
+            ('weather',  '🌤', '天气'),
             ('settings', '⚙️', '设置'),
         ]
 
@@ -187,6 +193,7 @@ class MainPanel:
         self._tab_frames['news']     = self._build_news_tab(self._content_host)
         self._tab_frames['pet']      = self._build_pet_tab(self._content_host)
         self._tab_frames['notes']    = self._build_notes_tab(self._content_host)
+        self._tab_frames['weather']  = self._build_weather_tab(self._content_host)
         self._tab_frames['settings'] = self._build_settings_tab(self._content_host)
 
         for frame in self._tab_frames.values():
@@ -261,6 +268,15 @@ class MainPanel:
             if not self._news_loaded:
                 self._news_loaded = True
                 self._load_news_async(force=False)
+
+        if key == 'weather':
+            if not self._weather_loaded:
+                self._weather_loaded = True
+                self._weather_cities = load_json(WEATHER_FILE, [])
+                self._weather_selected = self._weather_cities[0] if self._weather_cities else None
+                self._rebuild_city_list()
+                for city in self._weather_cities:
+                    self._load_weather_async(city)
 
     # ── 主题切换 ──────────────────────────────────────
 
