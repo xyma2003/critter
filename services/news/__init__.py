@@ -4,6 +4,7 @@ services/news — 新闻抓取、缓存、解析、通知
 import json
 import re
 import subprocess
+import sys
 import time
 
 from config import CACHE_FILE, CACHE_TTL, NEWS_SCRIPT
@@ -24,7 +25,7 @@ def save_cache(content):
 
 
 def fetch_news_raw():
-    result = subprocess.run(['python3', NEWS_SCRIPT],
+    result = subprocess.run([sys.executable, NEWS_SCRIPT],
                             capture_output=True, text=True, timeout=30)
     return result.stdout
 

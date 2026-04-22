@@ -14,6 +14,7 @@ import ctypes
 from config import THEMES, FG_MAIN, FG_ACCENT
 from data.settings import load_settings
 from ui.panel import MainPanel
+from utils.objc import load_objc, get_all_ns_windows, get_style_mask, set_window_level, set_collection_behavior
 
 
 class DesktopPet:
@@ -71,37 +72,13 @@ class DesktopPet:
 
     def _get_nswindow(self):
         """找到宠物对应的 NSWindow（styleMask==14），返回 (objc, sel, w) 或 None。"""
-        try:
-            objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.dylib')
-            objc.objc_getClass.restype = ctypes.c_void_p
-            objc.objc_getClass.argtypes = [ctypes.c_char_p]
-            objc.sel_registerName.restype = ctypes.c_void_p
-            objc.sel_registerName.argtypes = [ctypes.c_char_p]
-
-            def sel(name):
-                return objc.sel_registerName(name.encode())
-
-            def msg0(obj, sel_name):
-                objc.objc_msgSend.restype = ctypes.c_void_p
-                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-                return objc.objc_msgSend(obj, sel(sel_name))
-
-            NSApp = msg0(objc.objc_getClass(b'NSApplication'), 'sharedApplication')
-            windows = msg0(NSApp, 'windows')
-            objc.objc_msgSend.restype = ctypes.c_long
-            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-            count = objc.objc_msgSend(windows, sel('count'))
-
-            for i in range(count):
-                objc.objc_msgSend.restype = ctypes.c_void_p
-                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
-                w = objc.objc_msgSend(windows, sel('objectAtIndex:'), ctypes.c_ulong(i))
-                objc.objc_msgSend.restype = ctypes.c_ulong
-                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-                if objc.objc_msgSend(w, sel('styleMask')) == 14:
-                    return objc, sel, w
-        except Exception:
-            pass
+        result = load_objc()
+        if not result:
+            return None
+        objc, sel, msg0 = result
+        for w in get_all_ns_windows(objc, sel, msg0):
+            if get_style_mask(objc, sel, w) == 14:
+                return objc, sel, w
         return None
 
     def _fix_pet_transparent(self):
@@ -126,17 +103,12 @@ class DesktopPet:
             objc.objc_msgSend(w, sel('setBackgroundColor:'), clear)
 
             # NSScreenSaverWindowLevel=1000，高于全屏应用（kCGFloatingWindowLevel=5）
-            objc.objc_msgSend.restype = None
-            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long]
-            objc.objc_msgSend(w, sel('setLevel:'), ctypes.c_long(1000))
+            set_window_level(objc, sel, w, 1000)
 
             # 让窗口出现在所有 Space（包括全屏应用的 Space）
             # NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
             # NSWindowCollectionBehaviorStationary = 1 << 4
-            collection_behavior = (1 << 0) | (1 << 4)
-            objc.objc_msgSend.restype = None
-            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
-            objc.objc_msgSend(w, sel('setCollectionBehavior:'), ctypes.c_ulong(collection_behavior))
+            set_collection_behavior(objc, sel, w, (1 << 0) | (1 << 4))
 
             objc.objc_msgSend.restype = ctypes.c_void_p
             objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
@@ -150,9 +122,7 @@ class DesktopPet:
         if result:
             objc, sel, w = result
             try:
-                objc.objc_msgSend.restype = None
-                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long]
-                objc.objc_msgSend(w, sel('setLevel:'), ctypes.c_long(1000))
+                set_window_level(objc, sel, w, 1000)
             except Exception:
                 pass
         self.root.after(2000, self._keep_on_top)

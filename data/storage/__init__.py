@@ -1,7 +1,20 @@
 """
 data/storage — StorageRepository：书签 / 稍后再看 持久化层
 """
+from datetime import datetime, timezone
+
 from data.settings import load_json, save_json
+
+
+def _parse_saved_at(item):
+    """将 saved_at 字符串解析为 datetime，解析失败时返回 epoch。"""
+    raw = item.get('saved_at', '')
+    for fmt in ('%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S'):
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            continue
+    return datetime.fromtimestamp(0, tz=timezone.utc)
 
 
 class StorageRepository:
@@ -69,6 +82,6 @@ class StorageRepository:
         try:
             data = self._load()
             items = data.get(collection, [])
-            return sorted(items, key=lambda x: x.get('saved_at', ''), reverse=True)
+            return sorted(items, key=_parse_saved_at, reverse=True)
         except Exception:
             return []

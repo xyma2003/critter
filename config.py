@@ -13,6 +13,7 @@ USER_PROFILE_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/use
 CHAT_HISTORY_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/chat_history.json")
 PET_STATS_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/pet_stats.json")
 CACHE_TTL         = 30 * 60   # 30 分钟
+CLAUDE_CLI        = '/opt/homebrew/bin/claude'
 
 # ── 颜色主题 ──────────────────────────────────────────
 THEMES = {
@@ -57,16 +58,3 @@ THEMES = {
         "ACCENT_BAR": "#0078d4",
     },
 }
-
-# ── 全局颜色常量（兼容旧引用）──────────────────────────
-BG_DARK    = "#161616"
-BG_PANEL   = "#242424"
-BG_CARD    = "#2e2e2e"
-BG_HOVER   = "#3a3a3a"
-FG_MAIN    = "#e0e0e0"
-FG_DIM     = "#666666"
-FG_ACCENT  = "#4fc3f7"
-FG_GREEN   = "#81c784"
-FG_YELLOW  = "#ffd54f"
-FG_RED     = "#ef5350"
-BORDER     = "#2e2e2e"

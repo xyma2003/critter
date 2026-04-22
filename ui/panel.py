@@ -10,14 +10,11 @@ import re
 import subprocess
 import random
 import hashlib
-import ctypes
-
-from config import (THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE,
-                    BG_DARK, BG_PANEL, BG_CARD, BG_HOVER, FG_MAIN, FG_DIM,
-                    FG_ACCENT, FG_GREEN, FG_YELLOW, FG_RED, BORDER)
+from config import THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE, CLAUDE_CLI
 from data.settings import load_json, save_json, load_settings, save_settings
+from utils.objc import load_objc, get_all_ns_windows, nsstring_to_py, set_collection_behavior
 from data.storage import StorageRepository
-from data.pet import PetStats
+from data.pet import PetStats, FEED_LINES, PLAY_LINES, REST_LINES
 from services.news import get_news, parse_news, send_notification
 from services.ai import translate_titles_with_claude
 import services.notes as notes_service
@@ -59,59 +56,34 @@ class MainPanel:
         self._news_refresh_job = None
         self._profile_enabled = True       # 本对话是否记录用户画像，默认开
         self.stats = PetStats()            # 心情 / 饱食 / 精力数值
+        self._clock_running = False
+        self._decay_running = False
+        self._home_emoji = None
+        self._home_emoji_id = None
+        self._pet_emoji_label = None
+        self._chat_topbar_emoji = None
+        self._picker_frame = None
+        self._news_collection_frame = None
+        self._news_sections_cache = None
+        self._last_user_text = ''
 
     # ── macOS 窗口层级修复 ────────────────────────────
 
     def _fix_panel_window_level(self):
         try:
-            objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.dylib')
-            objc.objc_getClass.restype = ctypes.c_void_p
-            objc.objc_getClass.argtypes = [ctypes.c_char_p]
-            objc.sel_registerName.restype = ctypes.c_void_p
-            objc.sel_registerName.argtypes = [ctypes.c_char_p]
-
-            def sel(name):
-                return objc.sel_registerName(name.encode())
-
-            def msg0(obj, sel_name):
-                objc.objc_msgSend.restype = ctypes.c_void_p
-                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-                return objc.objc_msgSend(obj, sel(sel_name))
-
-            def msg_long(obj, sel_name):
-                objc.objc_msgSend.restype = ctypes.c_long
-                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-                return objc.objc_msgSend(obj, sel(sel_name))
-
-            def nsstring_to_py(nsstr):
-                if not nsstr:
-                    return ''
-                objc.objc_msgSend.restype = ctypes.c_char_p
-                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-                b = objc.objc_msgSend(nsstr, sel('UTF8String'))
-                return b.decode('utf-8', errors='replace') if b else ''
-
-            NSApp_cls = objc.objc_getClass(b'NSApplication')
-            NSApp = msg0(NSApp_cls, 'sharedApplication')
-            windows = msg0(NSApp, 'windows')
-            count = msg_long(windows, 'count')
+            result = load_objc()
+            if not result:
+                return
+            objc, sel, msg0 = result
             panel_title = self.win.title()
             nswin = None
-            for i in range(count):
-                objc.objc_msgSend.restype = ctypes.c_void_p
-                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
-                w = objc.objc_msgSend(windows, sel('objectAtIndex:'), ctypes.c_ulong(i))
-                t = nsstring_to_py(msg0(w, 'title'))
-                if t == panel_title:
+            for w in get_all_ns_windows(objc, sel, msg0):
+                if nsstring_to_py(objc, sel, msg0(w, 'title')) == panel_title:
                     nswin = w
                     break
-
             if nswin:
                 NSWindowCollectionBehaviorTransient = 1 << 3
-                objc.objc_msgSend.restype = None
-                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
-                objc.objc_msgSend(nswin, sel('setCollectionBehavior:'),
-                                  ctypes.c_ulong(NSWindowCollectionBehaviorTransient))
+                set_collection_behavior(objc, sel, nswin, NSWindowCollectionBehaviorTransient)
         except Exception:
             pass
 
@@ -125,8 +97,8 @@ class MainPanel:
             if hasattr(self, '_pet_emoji_label'):
                 self._pet_emoji_label.configure(
                     text=self.pet.settings.get('pet_emoji', '🐱'))
-            if hasattr(self, '_home_emoji'):
-                self._home_emoji.configure(
+            if self._home_emoji:
+                self._home_emoji.itemconfig(self._home_emoji_id,
                     text=self.pet.settings.get('pet_emoji', '🐱'))
             self._switch_tab(self._active_tab)
             return
@@ -402,10 +374,14 @@ class MainPanel:
         q, sub = random.choice(self.GREETINGS)
         self._welcome_greeting = (q, sub)
 
-        self._home_emoji = tk.Label(center,
-            text=self.pet.settings.get('pet_emoji', '🐱'),
-            bg=th['BG_CONTENT'], font=('Apple Color Emoji', 72))
+        _em_size = 90
+        self._home_emoji = tk.Canvas(center, width=_em_size, height=_em_size,
+            bg=th['BG_CONTENT'], highlightthickness=0, bd=0)
         self._home_emoji.pack(pady=(0, 18))
+        self._home_emoji_id = self._home_emoji.create_text(
+            _em_size // 2, _em_size // 2,
+            text=self.pet.settings.get('pet_emoji', '🐱'),
+            font=('Apple Color Emoji', 72), anchor='center')
 
         self._home_question = tk.Label(center, text=q,
             bg=th['BG_CONTENT'], fg=th['FG_MAIN'],
@@ -525,19 +501,34 @@ class MainPanel:
             c.delete('pill')
             w = c.winfo_width() or 600
             h = c.winfo_height() or BAR_H
-            r = h // 2
-            c.create_arc(0, 0, r*2, r*2, start=90, extent=90,
-                fill=fill_color, outline=fill_color, tags='pill')
-            c.create_arc(w-r*2, 0, w, r*2, start=0, extent=90,
-                fill=fill_color, outline=fill_color, tags='pill')
-            c.create_arc(0, h-r*2, r*2, h, start=180, extent=90,
-                fill=fill_color, outline=fill_color, tags='pill')
-            c.create_arc(w-r*2, h-r*2, w, h, start=270, extent=90,
-                fill=fill_color, outline=fill_color, tags='pill')
-            c.create_rectangle(r, 0, w-r, h,
-                fill=fill_color, outline=fill_color, tags='pill')
-            c.create_rectangle(0, r, w, h-r,
-                fill=fill_color, outline=fill_color, tags='pill')
+            # 内缩 1px，避免描边被 canvas 边缘裁掉
+            x0, y0, x1, y1 = 1, 1, w - 1, h - 1
+            r = (y1 - y0) // 2
+            border = th['BORDER']
+            # 填充
+            c.create_arc(x0, y0, x0+r*2, y0+r*2, start=90, extent=90,
+                fill=fill_color, outline='', tags='pill')
+            c.create_arc(x1-r*2, y0, x1, y0+r*2, start=0, extent=90,
+                fill=fill_color, outline='', tags='pill')
+            c.create_arc(x0, y1-r*2, x0+r*2, y1, start=180, extent=90,
+                fill=fill_color, outline='', tags='pill')
+            c.create_arc(x1-r*2, y1-r*2, x1, y1, start=270, extent=90,
+                fill=fill_color, outline='', tags='pill')
+            c.create_rectangle(x0+r, y0, x1-r, y1,
+                fill=fill_color, outline='', tags='pill')
+            c.create_rectangle(x0, y0+r, x1, y1-r,
+                fill=fill_color, outline='', tags='pill')
+            # 描边（style=ARC 只画弧线，不画弦）
+            c.create_arc(x0, y0, x0+r*2, y0+r*2, start=90, extent=90,
+                fill='', outline=border, style=tk.ARC, tags='pill')
+            c.create_arc(x1-r*2, y0, x1, y0+r*2, start=0, extent=90,
+                fill='', outline=border, style=tk.ARC, tags='pill')
+            c.create_arc(x0, y1-r*2, x0+r*2, y1, start=180, extent=90,
+                fill='', outline=border, style=tk.ARC, tags='pill')
+            c.create_arc(x1-r*2, y1-r*2, x1, y1, start=270, extent=90,
+                fill='', outline=border, style=tk.ARC, tags='pill')
+            c.create_line(x0+r, y0, x1-r, y0, fill=border, tags='pill')
+            c.create_line(x0+r, y1, x1-r, y1, fill=border, tags='pill')
 
         def _draw_send_btn(c, color):
             c.delete('sendbtn')
@@ -777,10 +768,18 @@ class MainPanel:
         self.win.after(50, _render)
 
     def _update_home_clock(self):
-        if not (self.win and self.win.winfo_exists()):
+        if self._clock_running:
             return
-        self._home_time_label.configure(text=time.strftime('%H:%M  %m/%d'))
-        self.win.after(30000, self._update_home_clock)
+        self._clock_running = True
+
+        def _tick():
+            if not (self.win and self.win.winfo_exists()):
+                self._clock_running = False
+                return
+            self._home_time_label.configure(text=time.strftime('%H:%M  %m/%d'))
+            self.win.after(30000, _tick)
+
+        _tick()
 
     @staticmethod
     def _draw_rounded_rect(canvas, w, h, r, bg, tag):
@@ -903,6 +902,7 @@ class MainPanel:
             self._add_chat_bubble('pet', f'{q}\n{sub}')
 
         self._add_chat_bubble('user', text)
+        self._last_user_text = text
 
         self._chat_thinking = True
         th = THEMES[self._theme_mode]
@@ -942,7 +942,7 @@ class MainPanel:
         accumulated = ''
         try:
             proc = subprocess.Popen(
-                ['/opt/homebrew/bin/claude', '--print',
+                [CLAUDE_CLI, '--print',
                  '--output-format', 'stream-json',
                  '--include-partial-messages',
                  '--verbose',
@@ -1001,32 +1001,7 @@ class MainPanel:
         self.stats.on_chat()
         self._sync_pet_ui()
         if self._profile_enabled:
-            # 取本轮对话最后一条用户消息（即刚发送的那条）
-            # bubbles 存为 (role, text) 元组列表
-            sess = next((s for s in self._chat_sessions
-                         if s['id'] == self._current_session_id), None)
-            last_user = ''
-            if sess:
-                for b in reversed(sess.get('bubbles', [])):
-                    role = b[0] if isinstance(b, (tuple, list)) else b.get('role', '')
-                    text = b[1] if isinstance(b, (tuple, list)) else b.get('text', '')
-                    if role == 'user':
-                        last_user = text
-                        break
-            # bubbles 在 _save_current_session 才更新，这里直接用 _thinking_canvas 之前的输入
-            # 通过 _chat_inner 子控件读取最后一个 user bubble
-            if not last_user:
-                for row in reversed(self._chat_inner.winfo_children()):
-                    found = False
-                    for child in row.winfo_children():
-                        if child.winfo_class() == 'Canvas' and hasattr(child, '_text_id'):
-                            role = 'user' if child._bubble_bg == THEMES[self._theme_mode]['FG_ACCENT'] else 'pet'
-                            if role == 'user':
-                                last_user = child.itemcget(child._text_id, 'text')
-                                found = True
-                                break
-                    if found:
-                        break
+            last_user = getattr(self, '_last_user_text', '')
             if last_user:
                 threading.Thread(
                     target=self._extract_profile_async,
@@ -1052,7 +1027,7 @@ class MainPanel:
         )
         try:
             proc = subprocess.Popen(
-                ['/opt/homebrew/bin/claude', '--print',
+                [CLAUDE_CLI, '--print',
                  '--output-format', 'json'],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, text=True
@@ -1557,7 +1532,7 @@ class MainPanel:
                     num_canvas.create_text(11, 11, text=str(i+1),
                                            fill=rank_color, font=('PingFang SC', 10))
 
-                col_w = max(160, (canvas_w - 28) // cols - 50)
+                col_w = max(120, (canvas_w - 28) // cols - 120)
                 title_lbl = tk.Label(row, text=item['title'],
                                      bg=th['BG_CARD'], fg=th['FG_MAIN'],
                                      font=('PingFang SC', 11),
@@ -1786,19 +1761,26 @@ class MainPanel:
         if base_emoji == '🐱':
             self.pet.set_emoji(mood_em)
             # 主页大 emoji
-            if hasattr(self, '_home_emoji') and self._home_emoji.winfo_exists():
-                self._home_emoji.configure(text=mood_em)
+            if self._home_emoji and self._home_emoji.winfo_exists():
+                self._home_emoji.itemconfig(self._home_emoji_id, text=mood_em)
             # 聊天 topbar emoji
             if hasattr(self, '_chat_topbar_emoji') and self._chat_topbar_emoji.winfo_exists():
                 self._chat_topbar_emoji.configure(text=mood_em)
 
     def _start_stats_decay(self):
         """每 10 分钟衰减一次，循环调度。"""
+        if self._decay_running:
+            return
+        self._decay_running = True
+
         def _decay_tick():
             self.stats.decay()
             self._sync_pet_ui()
             if self.win and self.win.winfo_exists():
                 self.win.after(PetStats.DECAY_INTERVAL_MS, _decay_tick)
+            else:
+                self._decay_running = False
+
         if self.win and self.win.winfo_exists():
             self.win.after(PetStats.DECAY_INTERVAL_MS, _decay_tick)
 
@@ -1808,71 +1790,17 @@ class MainPanel:
         self._pet_log.insert('1.0', f'[{ts}] {msg}\n')
         self._pet_log.configure(state=tk.DISABLED)
 
-    # ── 互动台词池（按状态分支）──────────────────────────
-    _FEED_LINES = {
-        'starving': [
-            '终于等到你了！我都快饿晕了 😭🐟',
-            '呜呜好饿好饿，谢谢你救了我！🐟',
-            '肚子咕咕叫超久了……好香啊！😋',
-        ],
-        'hungry': [
-            '正好有点饿，吃得好满足~ 🐟',
-            '嗯嗯嗯，鱼鱼最好吃了！😸',
-            '哇，鱼！我最喜欢的！🐟✨',
-            '谢谢铲屎官，吃饱了好开心~ 😊',
-        ],
-        'full': [
-            '其实我还不太饿……但鱼鱼不吃白不吃 😏',
-            '刚吃过呢，不过再吃一点也没关系啦 😅🐟',
-            '撑死我了，你太宠我了吧 🤣',
-        ],
-    }
-    _PLAY_LINES = {
-        'bored': [
-            '终于有人陪我玩了！冲啊！🎾💨',
-            '我等这一刻好久了！！🎾🎉',
-            '无聊死了，快来快来！😆',
-        ],
-        'normal': [
-            '耶！逗猫棒！！扑过去！🎾',
-            '哈哈抓到了！再来再来！😹',
-            '嗖——！我好厉害！🐾🎾',
-            '玩得好开心，尾巴都竖起来了~ 😸',
-        ],
-        'tired': [
-            '有点累了，但还是想玩……🥱🎾',
-            '玩一下下就好，我有点困 😴',
-            '嗯……勉强陪你玩一会儿吧 😪',
-        ],
-    }
-    _REST_LINES = {
-        'exhausted': [
-            '累坏了……zzz 好舒服好舒服 💤',
-            '终于可以睡了，不要叫我……💤😴',
-            '眼皮好重……立刻进入梦乡 💤',
-        ],
-        'normal': [
-            '小憩一下，充个电~ 💤',
-            '闭上眼睛，很快就好了 😌',
-            '嗯……睡一觉什么都好了 💤✨',
-            '躺平！休息是最重要的事！😴',
-        ],
-        'energetic': [
-            '其实我不困，但既然你让我休息……💤',
-            '勉强躺一会儿吧，反正也没事做 😏',
-            '好吧好吧，补个觉也不错 😌',
-        ],
-    }
-
     def _flash_emoji(self, flash_em, duration_ms=700):
         """短暂显示 flash_em，然后恢复到当前心情 emoji。"""
         def _restore():
             if self.win and self.win.winfo_exists():
                 self._sync_pet_ui()
-        for attr in ('_pet_emoji_label', '_home_emoji', '_chat_topbar_emoji'):
+        for attr in ('_pet_emoji_label', '_chat_topbar_emoji'):
             w = getattr(self, attr, None)
             if w and w.winfo_exists():
                 w.configure(text=flash_em)
+        if self._home_emoji and self._home_emoji.winfo_exists():
+            self._home_emoji.itemconfig(self._home_emoji_id, text=flash_em)
         base = self.pet.settings.get('pet_emoji', '🐱')
         if base == '🐱':
             self.pet.set_emoji(flash_em)
@@ -1890,7 +1818,7 @@ class MainPanel:
         self.stats.feed()
         self._sync_pet_ui()
         self._flash_emoji('😋', 800)
-        self._log_pet(random.choice(self._FEED_LINES[bucket]))
+        self._log_pet(random.choice(FEED_LINES[bucket]))
         self.pet.trigger_bounce()
 
     def _play(self):
@@ -1904,7 +1832,7 @@ class MainPanel:
         self.stats.play()
         self._sync_pet_ui()
         self._flash_emoji('😹', 800)
-        self._log_pet(random.choice(self._PLAY_LINES[bucket]))
+        self._log_pet(random.choice(PLAY_LINES[bucket]))
         self.pet.trigger_bounce()
 
     def _sleep(self):
@@ -1918,7 +1846,7 @@ class MainPanel:
         self.stats.rest()
         self._sync_pet_ui()
         self._flash_emoji('😴', 1000)
-        self._log_pet(random.choice(self._REST_LINES[bucket]))
+        self._log_pet(random.choice(REST_LINES[bucket]))
 
     # ══════════════════════════════════════════════════
     #  Tab: 便签
@@ -2116,27 +2044,17 @@ class MainPanel:
         if not content.strip():
             self._notes_status.configure(text='内容为空')
             return
-        notes = notes_service.load_all()
-        now = int(time.time())
         if self._notes_current_id is not None:
-            for n in notes:
-                if n['id'] == self._notes_current_id:
-                    n['content'] = content
-                    n['updated'] = now
-                    break
+            notes_service.update(self._notes_current_id, content)
         else:
-            new_id = now
-            notes.append({'id': new_id, 'content': content, 'updated': now})
-            self._notes_current_id = new_id
-        notes_service.save_all(notes)
+            note = notes_service.create(content)
+            self._notes_current_id = note['id']
         self._notes_status.configure(text=f'已保存 {time.strftime("%H:%M:%S")}')
         self._notes_show_list()
 
     def _notes_delete(self, note_id):
-        notes = notes_service.load_all()
-        notes = [n for n in notes if n['id'] != note_id]
-        notes_service.save_all(notes)
-        if notes:
+        remaining = notes_service.delete(note_id)
+        if remaining:
             self._notes_show_list()
         else:
             self._notes_open_editor(None)
@@ -2265,8 +2183,8 @@ class MainPanel:
         self.pet.set_emoji(em)
         if hasattr(self, '_pet_emoji_label'):
             self._pet_emoji_label.configure(text=em)
-        if hasattr(self, '_home_emoji'):
-            self._home_emoji.configure(text=em)
+        if hasattr(self, '_home_emoji') and self._home_emoji:
+            self._home_emoji.itemconfig(self._home_emoji_id, text=em)
 
     def _save_settings(self):
         s = self.pet.settings

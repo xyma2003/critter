@@ -3,6 +3,7 @@ services/ai — Claude CLI 辅助函数
 """
 import re
 import subprocess
+from config import CLAUDE_CLI
 
 
 def translate_titles_with_claude(titles):
@@ -16,7 +17,7 @@ def translate_titles_with_claude(titles):
     )
     try:
         result = subprocess.run(
-            ['/opt/homebrew/bin/claude', '--print', prompt],
+            [CLAUDE_CLI, '--print', prompt],
             capture_output=True, text=True, timeout=30
         )
         # 按编号匹配，忽略空行和多余文字，容忍 Claude 输出格式不稳定
