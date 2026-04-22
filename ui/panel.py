@@ -2108,6 +2108,26 @@ class MainPanel:
         add_btn.pack(side=tk.RIGHT, padx=(0, 8))
         add_btn.bind('<Button-1>', lambda e: self._weather_add_city(self._weather_city_entry.get()))
 
+        # ↻ 刷新 button — packed RIGHT, before the add button
+        def _do_refresh():
+            city = self._weather_selected
+            if not city:
+                return
+            if city in self._weather_fetching:
+                self._weather_status.configure(text='正在刷新...')
+                return
+            self._weather_status.configure(text='正在刷新...')
+            self._load_weather_async(city, force=True)
+
+        refresh_btn = tk.Label(toolbar, text='↻ 刷新', bg=th['BG_TOOLBAR'],
+                               fg=th['FG_ACCENT'], font=('PingFang SC', 10),
+                               cursor='hand2', padx=8, pady=3)
+        refresh_btn.pack(side=tk.RIGHT, padx=(0, 4))
+        refresh_btn.bind('<Button-1>', lambda e: _do_refresh())
+        refresh_btn.bind('<Enter>', lambda e: refresh_btn.configure(fg=th['FG_MAIN']))
+        refresh_btn.bind('<Leave>', lambda e: refresh_btn.configure(fg=th['FG_ACCENT']))
+        self._weather_refresh_btn = refresh_btn
+
         # 分隔线（工具栏下方）
         tk.Frame(frame, bg=th['DIVIDER'], height=1).pack(fill=tk.X)
 
