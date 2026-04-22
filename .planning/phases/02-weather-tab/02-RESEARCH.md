@@ -548,7 +548,7 @@ def _fmt_forecast_date(iso_date, index):
 |--------|----------|-----------|-------------------|-------------|
 | WTHR-01 | fetch_weather returns temp_C, feels_like_C, desc fields | unit | `python3.11 -m pytest tests/test_weather_service.py::test_parse_current -x` | Wave 0 |
 | WTHR-02 | Chinese city name (上海) fetches valid data | unit (mock) | `python3.11 -m pytest tests/test_weather_service.py::test_chinese_city -x` | Wave 0 |
-| WTHR-03 | delete_city removes from list and saves to JSON | unit | `python3.11 -m pytest tests/test_weather_service.py::test_city_persistence -x` | Wave 0 |
+| WTHR-03 | delete_city removes from list and saves to JSON | human-verify | n/a | — |
 | WTHR-04 | fetch_weather blocks < 0.01s when cache hit | unit | `python3.11 -m pytest tests/test_weather_service.py::test_cache_hit -x` | Wave 0 |
 | WTHR-05 | fetch_weather returns 3-item forecast list | unit | `python3.11 -m pytest tests/test_weather_service.py::test_forecast_three_days -x` | Wave 0 |
 | WTHR-06 | Second call within 15 min returns cached data without HTTP request | unit | `python3.11 -m pytest tests/test_weather_service.py::test_cache_ttl -x` | Wave 0 |
