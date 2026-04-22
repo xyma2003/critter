@@ -2076,6 +2076,194 @@ class MainPanel:
             self._notes_open_editor(None)
 
     # ══════════════════════════════════════════════════
+    #  Tab: 天气
+    # ══════════════════════════════════════════════════
+
+    def _build_weather_tab(self, parent):
+        th = THEMES[self._theme_mode]
+        frame = tk.Frame(parent, bg=th['BG_CONTENT'])
+
+        # ── 工具栏 ──
+        toolbar = tk.Frame(frame, bg=th['BG_TOOLBAR'], height=44)
+        toolbar.pack(fill=tk.X)
+        toolbar.pack_propagate(False)
+
+        tk.Label(toolbar, text='天气', bg=th['BG_TOOLBAR'], fg=th['FG_MAIN'],
+                 font=('PingFang SC', 13, 'bold')).pack(side=tk.LEFT, padx=16)
+
+        self._weather_status = tk.Label(toolbar, text='', bg=th['BG_TOOLBAR'],
+                                        fg=th['FG_MUTED'], font=('PingFang SC', 10))
+        self._weather_status.pack(side=tk.LEFT, padx=4)
+
+        self._weather_city_entry = tk.Entry(
+            toolbar, width=16, bg=th['BG_CARD'], fg=th['FG_MAIN'],
+            insertbackground=th['FG_MAIN'], relief=tk.FLAT,
+            font=('PingFang SC', 11), highlightthickness=1,
+            highlightbackground=th['BORDER'])
+        self._weather_city_entry.pack(side=tk.RIGHT, padx=(4, 4))
+        self._weather_city_entry.bind('<Return>', lambda e: self._weather_add_city(self._weather_city_entry.get()))
+
+        add_btn = tk.Label(toolbar, text='添加', bg=th['BG_BTN'], fg='#ffffff',
+                           font=('PingFang SC', 10), cursor='hand2', padx=8, pady=3)
+        add_btn.pack(side=tk.RIGHT, padx=(0, 8))
+        add_btn.bind('<Button-1>', lambda e: self._weather_add_city(self._weather_city_entry.get()))
+
+        # 分隔线（工具栏下方）
+        tk.Frame(frame, bg=th['DIVIDER'], height=1).pack(fill=tk.X)
+
+        # ── 主体：左侧城市列表 + 右侧天气详情 ──
+        body = tk.Frame(frame, bg=th['BG_CONTENT'])
+        body.pack(fill=tk.BOTH, expand=True)
+
+        # 左侧城市面板（固定 180px）
+        self._weather_left = tk.Frame(body, bg=th['BG_SIDEBAR'], width=180)
+        self._weather_left.pack(side=tk.LEFT, fill=tk.Y)
+        self._weather_left.pack_propagate(False)
+
+        # 垂直分隔线
+        tk.Frame(body, bg=th['DIVIDER'], width=1).pack(side=tk.LEFT, fill=tk.Y)
+
+        # 城市列表 frame（在左侧面板内）
+        self._weather_city_list_frame = tk.Frame(self._weather_left, bg=th['BG_SIDEBAR'])
+        self._weather_city_list_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 右侧天气详情
+        self._weather_right = tk.Frame(body, bg=th['BG_CONTENT'])
+        self._weather_right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self._weather_main_frame = tk.Frame(self._weather_right, bg=th['BG_CONTENT'])
+        self._weather_main_frame.pack(fill=tk.BOTH, expand=True)
+
+        return frame
+
+    def _rebuild_city_list(self):
+        th = THEMES[self._theme_mode]
+        for w in self._weather_city_list_frame.winfo_children():
+            w.destroy()
+        if not self._weather_cities:
+            tk.Label(self._weather_city_list_frame, text='添加城市', bg=th['BG_SIDEBAR'],
+                     fg=th['FG_MUTED'], font=('PingFang SC', 10)).pack(pady=20)
+            return
+        for city in self._weather_cities:
+            row = tk.Frame(self._weather_city_list_frame, bg=th['BG_SIDEBAR'], cursor='hand2')
+            row.pack(fill=tk.X)
+            is_sel = (city == self._weather_selected)
+            row_bg = th['BG_SEL'] if is_sel else th['BG_SIDEBAR']
+            row.configure(bg=row_bg)
+            # left accent bar (3px)
+            bar = tk.Frame(row, bg=th['ACCENT_BAR'] if is_sel else th['BG_SIDEBAR'], width=3)
+            bar.pack(side=tk.LEFT, fill=tk.Y)
+            bar.pack_propagate(False)
+            name_lbl = tk.Label(row, text=city, bg=row_bg, fg=th['FG_MAIN'],
+                                font=('PingFang SC', 11), anchor='w', padx=8, pady=8)
+            name_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            del_btn = tk.Label(row, text='×', bg=row_bg, fg=th['FG_MUTED'],
+                               font=('PingFang SC', 12), cursor='hand2', padx=6)
+            del_btn.pack(side=tk.RIGHT)
+            # click row → select city
+            def _click_city(e, c=city):
+                self._weather_selected = c
+                self._rebuild_city_list()
+                self._render_current_weather()
+            for w in (row, name_lbl):
+                w.bind('<Button-1>', _click_city)
+            # click × → delete
+            def _del(e, c=city):
+                self._weather_delete_city(c)
+            del_btn.bind('<Button-1>', _del)
+            # hover
+            def _enter(e, r=row, b=bar, n=name_lbl, d=del_btn, c=city):
+                if c != self._weather_selected:
+                    for w in (r, n, d): w.configure(bg=th['BG_HOVER'])
+            def _leave(e, r=row, b=bar, n=name_lbl, d=del_btn, c=city):
+                if c != self._weather_selected:
+                    for w in (r, n, d): w.configure(bg=th['BG_SIDEBAR'])
+            for w in (row, name_lbl, del_btn):
+                w.bind('<Enter>', _enter)
+                w.bind('<Leave>', _leave)
+
+    def _weather_add_city(self, city):
+        city = city.strip()
+        if not city or city in self._weather_cities:
+            return
+        self._weather_cities.append(city)
+        save_json(WEATHER_FILE, self._weather_cities)
+        self._weather_selected = city
+        self._rebuild_city_list()
+        self._weather_city_entry.delete(0, tk.END)
+        self._weather_status.configure(text='正在加载...')
+        self._load_weather_async(city)
+
+    def _weather_delete_city(self, city):
+        if city in self._weather_cities:
+            self._weather_cities.remove(city)
+        save_json(WEATHER_FILE, self._weather_cities)
+        if self._weather_selected == city:
+            self._weather_selected = self._weather_cities[0] if self._weather_cities else None
+        self._rebuild_city_list()
+        self._render_current_weather()
+
+    def _load_weather_async(self, city, force=False):
+        if city in self._weather_fetching:
+            return
+        self._weather_fetching.add(city)
+        def run():
+            data, from_cache, err = fetch_weather(city, force=force)
+            self._weather_fetching.discard(city)
+            if self.win and self.win.winfo_exists():
+                self.win.after(0, lambda: self._on_weather_loaded(city, data, err))
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_weather_loaded(self, city, data, err):
+        if err:
+            if city == self._weather_selected:
+                self._weather_status.configure(text=f'⚠️ {err}')
+            return
+        ts = last_fetch_time(city)
+        tstr = time.strftime('%H:%M', time.localtime(ts)) if ts else ''
+        self._weather_status.configure(text=f'{tstr} 已更新' if tstr else '已更新')
+        if city == self._weather_selected:
+            self._render_current_weather()
+
+    def _render_current_weather(self):
+        th = THEMES[self._theme_mode]
+        for w in self._weather_main_frame.winfo_children():
+            w.destroy()
+        if not self._weather_selected:
+            tk.Label(self._weather_main_frame, text='请先添加城市', bg=th['BG_CONTENT'],
+                     fg=th['FG_MUTED'], font=('PingFang SC', 12)).pack(pady=40)
+            return
+        city = self._weather_selected
+        data = get_cached_data(city)
+        if not data:
+            tk.Label(self._weather_main_frame, text='加载中...', bg=th['BG_CONTENT'],
+                     fg=th['FG_MUTED'], font=('PingFang SC', 12)).pack(pady=40)
+            return
+        emoji = code_to_emoji(data['code'])
+        # Current conditions card
+        card = tk.Frame(self._weather_main_frame, bg=th['BG_CARD'],
+                        highlightthickness=1, highlightbackground=th['BORDER'])
+        card.pack(fill=tk.X, padx=20, pady=(20, 10))
+        # Top row: emoji + temp + desc
+        top = tk.Frame(card, bg=th['BG_CARD'])
+        top.pack(fill=tk.X, padx=16, pady=(14, 4))
+        tk.Label(top, text=emoji, bg=th['BG_CARD'],
+                 font=('Apple Color Emoji', 36)).pack(side=tk.LEFT, padx=(0, 12))
+        info = tk.Frame(top, bg=th['BG_CARD'])
+        info.pack(side=tk.LEFT)
+        tk.Label(info, text=f"{data['temp_C']}°C", bg=th['BG_CARD'],
+                 fg=th['FG_MAIN'], font=('PingFang SC', 28, 'bold')).pack(anchor='w')
+        tk.Label(info, text=data['desc_zh'], bg=th['BG_CARD'],
+                 fg=th['FG_MUTED'], font=('PingFang SC', 12)).pack(anchor='w')
+        # Feels like
+        tk.Label(card, text=f"体感 {data['feels_like_C']}°C", bg=th['BG_CARD'],
+                 fg=th['FG_DIM'], font=('PingFang SC', 11),
+                 anchor='w').pack(fill=tk.X, padx=16, pady=(0, 14))
+        # City label
+        tk.Label(self._weather_main_frame, text=city, bg=th['BG_CONTENT'],
+                 fg=th['FG_MUTED'], font=('PingFang SC', 10)).pack(anchor='w', padx=20)
+
+    # ══════════════════════════════════════════════════
     #  Tab: 设置
     # ══════════════════════════════════════════════════
 
