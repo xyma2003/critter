@@ -2262,6 +2262,55 @@ class MainPanel:
         # City label
         tk.Label(self._weather_main_frame, text=city, bg=th['BG_CONTENT'],
                  fg=th['FG_MUTED'], font=('PingFang SC', 10)).pack(anchor='w', padx=20)
+        self._render_forecast(data)
+
+    def _render_forecast(self, data):
+        """Render 3-day forecast cards below current conditions. Called from _render_current_weather."""
+        th = THEMES[self._theme_mode]
+        if not data.get('forecast'):
+            return
+        # Section header
+        tk.Label(self._weather_main_frame, text='3天预报', bg=th['BG_CONTENT'],
+                 fg=th['FG_MUTED'], font=('PingFang SC', 10),
+                 anchor='w').pack(fill=tk.X, padx=20, pady=(12, 4))
+        # Row of 3 forecast cards
+        row = tk.Frame(self._weather_main_frame, bg=th['BG_CONTENT'])
+        row.pack(fill=tk.X, padx=20, pady=(0, 16))
+        for i, day in enumerate(data['forecast'][:3]):
+            card = tk.Frame(row, bg=th['BG_CARD'],
+                            highlightthickness=1, highlightbackground=th['BORDER'])
+            card.pack(side=tk.LEFT, fill=tk.X, expand=True,
+                      padx=(0, 8) if i < 2 else 0, pady=0)
+            # Date label: 今天 / 明天 / formatted date
+            date_label = self._fmt_forecast_date(day['date'], i)
+            tk.Label(card, text=date_label, bg=th['BG_CARD'],
+                     fg=th['FG_MUTED'], font=('PingFang SC', 10)).pack(pady=(10, 2))
+            # Emoji — use the day's actual weather code (per WTHR-05)
+            emoji = code_to_emoji(day.get('code', 0))
+            tk.Label(card, text=emoji, bg=th['BG_CARD'],
+                     font=('Apple Color Emoji', 22)).pack(pady=2)
+            # Condition description
+            tk.Label(card, text=day.get('desc', ''), bg=th['BG_CARD'],
+                     fg=th['FG_DIM'], font=('PingFang SC', 9)).pack(pady=1)
+            # High / Low temps
+            tk.Label(card, text=f"{day['max_C']}° / {day['min_C']}°",
+                     bg=th['BG_CARD'], fg=th['FG_MAIN'],
+                     font=('PingFang SC', 11, 'bold')).pack(pady=(2, 10))
+
+    def _fmt_forecast_date(self, iso_date, index):
+        """Format ISO date string for forecast display.
+        index 0 → '今天', index 1 → '明天', index 2+ → 'M/D' format.
+        """
+        if index == 0:
+            return '今天'
+        if index == 1:
+            return '明天'
+        try:
+            from datetime import datetime as _dt
+            d = _dt.strptime(iso_date, '%Y-%m-%d')
+            return d.strftime('%-m/%-d')
+        except ValueError:
+            return iso_date[5:]  # fallback: 'MM-DD'
 
     # ══════════════════════════════════════════════════
     #  Tab: 设置
