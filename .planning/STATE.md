@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: "Checkpoint: awaiting human verification of Phase 1 News Bookmarks UI"
-last_updated: "2026-04-16T13:13:23.070Z"
-last_activity: 2026-04-16
+status: executing
+stopped_at: Completed 02-weather-tab 02-01-PLAN.md
+last_updated: "2026-04-22T03:53:32.511Z"
+last_activity: 2026-04-22
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 5
+  completed_plans: 3
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-16)
 
 **Core value:** 宠物始终在桌面陪伴——悬浮窗随时可见、可交互，让用户感受到有个小伙伴在场。
-**Current focus:** Phase 01 — news-bookmarks
+**Current focus:** Phase 02 — Weather Tab
 
 ## Current Position
 
-Phase: 01 (news-bookmarks) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-04-20 - Completed quick task 260420-tv8: 用 Pillow 生成可爱正脸卡通猫替换 DesktopPet Canvas 向量猫
+Phase: 02 (Weather Tab) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-04-22
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -54,6 +54,7 @@ Progress: [░░░░░░░░░░] 0%
 *Updated after each plan completion*
 | Phase 01-news-bookmarks P01 | 5 | 2 tasks | 1 files |
 | Phase 01 P02 | 15 | 2 tasks | 1 files |
+| Phase 02-weather-tab P01 | 15 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,8 @@ Recent decisions affecting current work:
 - [Phase 01-news-bookmarks]: list_items sorts newest-first by saved_at ISO8601 string (lexicographically sort-safe)
 - [Phase 01]: _make_item_id defined once before the section loop to avoid re-definition on every iteration
 - [Phase 01]: View-switch sub-toolbar uses hide/show pattern (pack_forget/pack) instead of frame destroy to preserve scroll state
+- [Phase 02-weather-tab]: Weather service uses in-memory _cache dict (not StorageRepository) — weather data expires in 15 min, persisting ephemeral data adds complexity without benefit
+- [Phase 02-weather-tab]: get_cached_data() public function ensures callers never import _cache directly; clean public API surface
 
 ### Pending Todos
 
@@ -89,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-16T13:13:23.068Z
-Stopped at: Checkpoint: awaiting human verification of Phase 1 News Bookmarks UI
+Last session: 2026-04-22T03:53:32.509Z
+Stopped at: Completed 02-weather-tab 02-01-PLAN.md
 Resume file: None

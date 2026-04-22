@@ -15,12 +15,12 @@
 
 ### 天气
 
-- [ ] **WTHR-01**: 用户可以在天气 Tab 查看当前城市的实时天气（温度、天气状况、体感温度）
-- [ ] **WTHR-02**: 用户可以添加任意城市到天气列表（支持中英文城市名）
+- [x] **WTHR-01**: 用户可以在天气 Tab 查看当前城市的实时天气（温度、天气状况、体感温度）
+- [x] **WTHR-02**: 用户可以添加任意城市到天气列表（支持中英文城市名）
 - [ ] **WTHR-03**: 用户可以删除已添加的城市
-- [ ] **WTHR-04**: 天气数据通过 wttr.in 免费 API 获取，异步加载不阻塞 UI
-- [ ] **WTHR-05**: 用户可以查看未来3天天气预报
-- [ ] **WTHR-06**: 天气 Tab 有手动刷新按钮，数据缓存15分钟避免频繁请求
+- [x] **WTHR-04**: 天气数据通过 wttr.in 免费 API 获取，异步加载不阻塞 UI
+- [x] **WTHR-05**: 用户可以查看未来3天天气预报
+- [x] **WTHR-06**: 天气 Tab 有手动刷新按钮，数据缓存15分钟避免频繁请求
 
 ### 心情系统
 
@@ -77,12 +77,12 @@
 | NEWS-03 | — | Complete |
 | NEWS-04 | — | Complete |
 | NEWS-05 | — | Complete |
-| WTHR-01 | — | Pending |
-| WTHR-02 | — | Pending |
+| WTHR-01 | — | Complete |
+| WTHR-02 | — | Complete |
 | WTHR-03 | — | Pending |
-| WTHR-04 | — | Pending |
-| WTHR-05 | — | Pending |
-| WTHR-06 | — | Pending |
+| WTHR-04 | — | Complete |
+| WTHR-05 | — | Complete |
+| WTHR-06 | — | Complete |
 | MOOD-01 | — | Pending |
 | MOOD-02 | — | Pending |
 | MOOD-03 | — | Pending |

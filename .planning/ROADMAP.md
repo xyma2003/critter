@@ -47,7 +47,7 @@ Plans:
   5. A manual Refresh button triggers a new fetch; data is cached for 15 minutes so repeated clicks do not re-fetch
 **Plans**: 3 plans
 Plans:
-- [ ] 02-01-PLAN.md — Weather service module (services/weather/__init__.py) + WEATHER_FILE constant + unit tests
+- [x] 02-01-PLAN.md — Weather service module (services/weather/__init__.py) + WEATHER_FILE constant + unit tests
 - [ ] 02-02-PLAN.md — Weather tab UI: nav registration, city list sidebar, add/delete city, current conditions display
 - [ ] 02-03-PLAN.md — 3-day forecast cards + Refresh button with 15-min cache guard + human-verify checkpoint
 **UI hint**: yes
@@ -86,6 +86,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. News Bookmarks | 2/2 | Complete   | 2026-04-16 |
-| 2. Weather Tab | 0/3 | Not started | - |
+| 2. Weather Tab | 1/3 | In Progress|  |
 | 3. Mood System | 0/TBD | Not started | - |
 | 4. Custom Pet Image | 0/TBD | Not started | - |
