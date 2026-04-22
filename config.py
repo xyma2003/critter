@@ -9,6 +9,7 @@ CACHE_FILE        = os.path.expanduser("~/.openclaw/workspace/desktop-pet/news_c
 NOTE_FILE         = os.path.expanduser("~/.openclaw/workspace/desktop-pet/notes.json")
 SETTINGS_FILE     = os.path.expanduser("~/.openclaw/workspace/desktop-pet/settings.json")
 BOOKMARKS_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/bookmarks.json")
+WEATHER_FILE      = os.path.expanduser("~/.openclaw/workspace/desktop-pet/weather.json")
 USER_PROFILE_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/user_profile.json")
 CHAT_HISTORY_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/chat_history.json")
 PET_STATS_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/pet_stats.json")
