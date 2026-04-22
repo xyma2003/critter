@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 02-weather-tab 02-02-PLAN.md
-last_updated: "2026-04-22T06:14:52.699Z"
+status: verifying
+stopped_at: "Completed 02-weather-tab 02-03-PLAN.md (checkpoint: awaiting human verify)"
+last_updated: "2026-04-22T06:18:20.864Z"
 last_activity: 2026-04-22
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-04-16)
 
 Phase: 02 (Weather Tab) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-22
 
 Progress: [░░░░░░░░░░] 0%
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P02 | 15 | 2 tasks | 1 files |
 | Phase 02-weather-tab P01 | 15 | 2 tasks | 5 files |
 | Phase 02-weather-tab P02 | 20 | 2 tasks | 1 files |
+| Phase 02-weather-tab P03 | 5 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [Phase 02-weather-tab]: get_cached_data() public function ensures callers never import _cache directly; clean public API surface
 - [Phase 02-weather-tab]: _weather_fetching set() guards against duplicate concurrent fetches for the same city
 - [Phase 02-weather-tab]: _render_current_weather uses get_cached_data() public API; no direct _cache import in panel.py
+- [Phase 02-weather-tab]: day.get('code', 0) used per forecast day so each card shows its actual weather condition
+- [Phase 02-weather-tab]: force=True passed on manual refresh to bypass 15-min WEATHER_TTL cache in services/weather/__init__.py
 
 ### Pending Todos
 
@@ -95,6 +98,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-22T06:14:52.697Z
-Stopped at: Completed 02-weather-tab 02-02-PLAN.md
+Last session: 2026-04-22T06:18:20.862Z
+Stopped at: Completed 02-weather-tab 02-03-PLAN.md (checkpoint: awaiting human verify)
 Resume file: None

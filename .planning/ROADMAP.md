@@ -49,7 +49,7 @@ Plans:
 Plans:
 - [x] 02-01-PLAN.md — Weather service module (services/weather/__init__.py) + WEATHER_FILE constant + unit tests
 - [x] 02-02-PLAN.md — Weather tab UI: nav registration, city list sidebar, add/delete city, current conditions display
-- [ ] 02-03-PLAN.md — 3-day forecast cards + Refresh button with 15-min cache guard + human-verify checkpoint
+- [x] 02-03-PLAN.md — 3-day forecast cards + Refresh button with 15-min cache guard + human-verify checkpoint
 **UI hint**: yes
 
 ### Phase 3: Mood System
