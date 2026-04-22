@@ -11,7 +11,7 @@ import subprocess
 import random
 import ctypes
 
-from config import THEMES, FG_MAIN, FG_ACCENT
+from config import THEMES
 from data.settings import load_settings
 from ui.panel import MainPanel
 from utils.objc import load_objc, get_all_ns_windows, get_style_mask, set_window_level, set_collection_behavior
@@ -57,9 +57,9 @@ class DesktopPet:
         self.panel = MainPanel(self)
 
         self._menu = tk.Menu(self.root, tearoff=0,
-                              bg='#2d2d2d', fg=FG_MAIN,
+                              bg='#2d2d2d', fg='#e0e0e0',
                               activebackground='#3d3d3d',
-                              activeforeground=FG_ACCENT,
+                              activeforeground='#4fc3f7',
                               font=('PingFang SC', 13))
         self._menu.add_command(label='🏠 打开主面板', command=self.panel.open)
         self._menu.add_separator()

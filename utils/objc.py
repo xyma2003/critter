@@ -89,3 +89,11 @@ def set_collection_behavior(objc, sel, nswin, behavior):
     objc.objc_msgSend.restype = None
     objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
     objc.objc_msgSend(nswin, sel('setCollectionBehavior:'), ctypes.c_ulong(behavior))
+
+
+def find_ns_window_by_title(objc, sel, msg0, title):
+    """按标题查找 NSWindow，返回第一个匹配的 c_void_p，找不到返回 None。"""
+    for w in get_all_ns_windows(objc, sel, msg0):
+        if nsstring_to_py(objc, sel, msg0(w, 'title')) == title:
+            return w
+    return None

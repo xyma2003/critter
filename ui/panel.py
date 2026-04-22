@@ -5,14 +5,13 @@ import tkinter as tk
 import threading
 import json
 import time
-import os
 import re
+from datetime import datetime as _dt
 import subprocess
 import random
-import hashlib
 from config import THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE, CLAUDE_CLI, WEATHER_FILE
 from data.settings import load_json, save_json, load_settings, save_settings
-from utils.objc import load_objc, get_all_ns_windows, nsstring_to_py, set_collection_behavior
+from utils.objc import load_objc, get_all_ns_windows, nsstring_to_py, set_collection_behavior, find_ns_window_by_title
 from data.storage import StorageRepository
 from data.pet import PetStats, FEED_LINES, PLAY_LINES, REST_LINES
 from services.news import get_news, parse_news, send_notification
@@ -80,12 +79,7 @@ class MainPanel:
             if not result:
                 return
             objc, sel, msg0 = result
-            panel_title = self.win.title()
-            nswin = None
-            for w in get_all_ns_windows(objc, sel, msg0):
-                if nsstring_to_py(objc, sel, msg0(w, 'title')) == panel_title:
-                    nswin = w
-                    break
+            nswin = find_ns_window_by_title(objc, sel, msg0, self.win.title())
             if nswin:
                 NSWindowCollectionBehaviorTransient = 1 << 3
                 set_collection_behavior(objc, sel, nswin, NSWindowCollectionBehaviorTransient)
@@ -275,6 +269,7 @@ class MainPanel:
                 self._weather_cities = load_json(WEATHER_FILE, [])
                 self._weather_selected = self._weather_cities[0] if self._weather_cities else None
                 self._rebuild_city_list()
+                self._render_current_weather()
                 for city in self._weather_cities:
                     self._load_weather_async(city)
 
@@ -1143,7 +1138,7 @@ class MainPanel:
                 tip.overrideredirect(True)
                 tip.attributes('-topmost', True)
                 tk.Label(tip, text=text,
-                         bg='#333333', fg='#ffffff',
+                         bg=th['BG_CARD'], fg=th['FG_MAIN'],
                          font=('PingFang SC', 10),
                          padx=8, pady=4).pack()
                 tip.update_idletasks()
@@ -1470,6 +1465,7 @@ class MainPanel:
         return _handler
 
     def _render_news(self, sections, status, cols=None):
+        import hashlib
         th = THEMES[self._theme_mode]
         self._news_status.configure(text=status)
         self._news_sections_cache = sections
@@ -1913,6 +1909,7 @@ class MainPanel:
 
         self._notes_current_id = None
         self._notes_list_frame = None
+        self._notes_mode = 'list'  # 'list' | 'edit'
 
         if notes_service.load_all():
             self._notes_show_list()
@@ -1922,6 +1919,7 @@ class MainPanel:
         return frame
 
     def _notes_show_list(self):
+        self._notes_mode = 'list'
         th = THEMES[self._theme_mode]
         self._notes_text.pack_forget()
         self._notes_save_btn.pack_forget()
@@ -2026,6 +2024,7 @@ class MainPanel:
                 _make_card(grid, item, col, row_i)
 
     def _notes_open_editor(self, note_id):
+        self._notes_mode = 'edit'
         th = THEMES[self._theme_mode]
         notes = notes_service.load_all()
 
@@ -2095,20 +2094,10 @@ class MainPanel:
                                         fg=th['FG_MUTED'], font=('PingFang SC', 10))
         self._weather_status.pack(side=tk.LEFT, padx=4)
 
-        self._weather_city_entry = tk.Entry(
-            toolbar, width=16, bg=th['BG_CARD'], fg=th['FG_MAIN'],
-            insertbackground=th['FG_MAIN'], relief=tk.FLAT,
-            font=('PingFang SC', 11), highlightthickness=1,
-            highlightbackground=th['BORDER'])
-        self._weather_city_entry.pack(side=tk.RIGHT, padx=(4, 4))
-        self._weather_city_entry.bind('<Return>', lambda e: self._weather_add_city(self._weather_city_entry.get()))
+        # ── 右侧工具区：刷新按钮 ──
+        right_area = tk.Frame(toolbar, bg=th['BG_TOOLBAR'])
+        right_area.pack(side=tk.RIGHT, padx=12)
 
-        add_btn = tk.Label(toolbar, text='添加', bg=th['BG_BTN'], fg='#ffffff',
-                           font=('PingFang SC', 10), cursor='hand2', padx=8, pady=3)
-        add_btn.pack(side=tk.RIGHT, padx=(0, 8))
-        add_btn.bind('<Button-1>', lambda e: self._weather_add_city(self._weather_city_entry.get()))
-
-        # ↻ 刷新 button — packed RIGHT, before the add button
         def _do_refresh():
             city = self._weather_selected
             if not city:
@@ -2119,14 +2108,16 @@ class MainPanel:
             self._weather_status.configure(text='正在刷新...')
             self._load_weather_async(city, force=True)
 
-        refresh_btn = tk.Label(toolbar, text='↻ 刷新', bg=th['BG_TOOLBAR'],
-                               fg=th['FG_ACCENT'], font=('PingFang SC', 10),
-                               cursor='hand2', padx=8, pady=3)
-        refresh_btn.pack(side=tk.RIGHT, padx=(0, 4))
+        refresh_btn = tk.Label(right_area, text='↻  刷新', bg=th['BG_TOOLBAR'],
+                               fg=th['FG_ACCENT'], font=('PingFang SC', 12),
+                               cursor='hand2', padx=10, pady=4)
+        refresh_btn.pack(side=tk.LEFT)
         refresh_btn.bind('<Button-1>', lambda e: _do_refresh())
         refresh_btn.bind('<Enter>', lambda e: refresh_btn.configure(fg=th['FG_MAIN']))
         refresh_btn.bind('<Leave>', lambda e: refresh_btn.configure(fg=th['FG_ACCENT']))
         self._weather_refresh_btn = refresh_btn
+        # 占位属性，有城市后左侧列表也可触发添加（通过居中区）
+        self._weather_city_entry = None
 
         # 分隔线（工具栏下方）
         tk.Frame(frame, bg=th['DIVIDER'], height=1).pack(fill=tk.X)
@@ -2134,6 +2125,7 @@ class MainPanel:
         # ── 主体：左侧城市列表 + 右侧天气详情 ──
         body = tk.Frame(frame, bg=th['BG_CONTENT'])
         body.pack(fill=tk.BOTH, expand=True)
+        self._weather_body = body
 
         # 左侧城市面板（固定 180px）
         self._weather_left = tk.Frame(body, bg=th['BG_SIDEBAR'], width=180)
@@ -2152,7 +2144,7 @@ class MainPanel:
         self._weather_right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self._weather_main_frame = tk.Frame(self._weather_right, bg=th['BG_CONTENT'])
-        self._weather_main_frame.pack(fill=tk.BOTH, expand=True)
+        self._weather_main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=16)
 
         return frame
 
@@ -2161,8 +2153,6 @@ class MainPanel:
         for w in self._weather_city_list_frame.winfo_children():
             w.destroy()
         if not self._weather_cities:
-            tk.Label(self._weather_city_list_frame, text='添加城市', bg=th['BG_SIDEBAR'],
-                     fg=th['FG_MUTED'], font=('PingFang SC', 10)).pack(pady=20)
             return
         for city in self._weather_cities:
             row = tk.Frame(self._weather_city_list_frame, bg=th['BG_SIDEBAR'], cursor='hand2')
@@ -2202,6 +2192,20 @@ class MainPanel:
                 w.bind('<Enter>', _enter)
                 w.bind('<Leave>', _leave)
 
+        # 底部"＋ 添加城市"按钮
+        add_row = tk.Frame(self._weather_city_list_frame, bg=th['BG_SIDEBAR'], cursor='hand2')
+        add_row.pack(fill=tk.X, side=tk.BOTTOM)
+        add_lbl = tk.Label(add_row, text='＋  添加城市', bg=th['BG_SIDEBAR'], fg=th['FG_ACCENT'],
+                           font=('PingFang SC', 11), anchor='w', padx=14, pady=8)
+        add_lbl.pack(fill=tk.X)
+        def _show_add_input(e=None):
+            self._weather_selected = None
+            self._render_current_weather()
+        for w in (add_row, add_lbl):
+            w.bind('<Button-1>', _show_add_input)
+            w.bind('<Enter>', lambda e: add_lbl.configure(fg=th['FG_MAIN']))
+            w.bind('<Leave>', lambda e: add_lbl.configure(fg=th['FG_ACCENT']))
+
     def _weather_add_city(self, city):
         city = city.strip()
         if not city or city in self._weather_cities:
@@ -2210,7 +2214,7 @@ class MainPanel:
         save_json(WEATHER_FILE, self._weather_cities)
         self._weather_selected = city
         self._rebuild_city_list()
-        self._weather_city_entry.delete(0, tk.END)
+        self._render_current_weather()
         self._weather_status.configure(text='正在加载...')
         self._load_weather_async(city)
 
@@ -2250,8 +2254,70 @@ class MainPanel:
         for w in self._weather_main_frame.winfo_children():
             w.destroy()
         if not self._weather_selected:
-            tk.Label(self._weather_main_frame, text='请先添加城市', bg=th['BG_CONTENT'],
-                     fg=th['FG_MUTED'], font=('PingFang SC', 12)).pack(pady=40)
+            # 撑满容器，然后用 place 在其中居中
+            bg = th['BG_CONTENT']
+            holder = tk.Frame(self._weather_main_frame, bg=bg)
+            holder.pack(fill=tk.BOTH, expand=True)
+            inner = tk.Frame(holder, bg=bg)
+
+            tk.Label(inner, text='☁️', bg=bg,
+                     font=('Apple Color Emoji', 40)).pack(pady=(0, 6))
+            tk.Label(inner, text='输入城市名，查看天气', bg=bg,
+                     fg=th['FG_MUTED'], font=('PingFang SC', 13)).pack(pady=(0, 16))
+            row = tk.Frame(inner, bg=bg)
+            row.pack()
+            search_bg = th['BG_SIDEBAR']
+            SW, SH, SR = 260, 42, 10
+            # Canvas 画圆角背景
+            sc = tk.Canvas(row, width=SW, height=SH, bg=bg, highlightthickness=0)
+            sc.pack(side=tk.LEFT, padx=(0, 10))
+            sc.create_arc(0, 0, SR*2, SR*2, start=90, extent=90, fill=search_bg, outline=search_bg)
+            sc.create_arc(SW-SR*2, 0, SW, SR*2, start=0, extent=90, fill=search_bg, outline=search_bg)
+            sc.create_arc(0, SH-SR*2, SR*2, SH, start=180, extent=90, fill=search_bg, outline=search_bg)
+            sc.create_arc(SW-SR*2, SH-SR*2, SW, SH, start=270, extent=90, fill=search_bg, outline=search_bg)
+            sc.create_rectangle(SR, 0, SW-SR, SH, fill=search_bg, outline=search_bg)
+            sc.create_rectangle(0, SR, SW, SH-SR, fill=search_bg, outline=search_bg)
+            # sf 用 place 叠在 Canvas 上，背景同色，不用 create_window
+            sf = tk.Frame(sc, bg=search_bg, bd=0)
+            sf.place(x=0, y=0, width=SW, height=SH)
+            tk.Label(sf, text='🔍', bg=search_bg,
+                     font=('Apple Color Emoji', 13)).pack(side=tk.LEFT, padx=(12, 2))
+            center_entry = tk.Entry(sf, width=15, bg=search_bg, fg=th['FG_MAIN'],
+                                    insertbackground=th['FG_MAIN'], relief=tk.FLAT,
+                                    font=('PingFang SC', 14), bd=0, highlightthickness=0)
+            center_entry.pack(side=tk.LEFT, padx=(0, 12), fill=tk.X, expand=True)
+
+            # 添加按钮
+            BW, BH, BR = 76, 38, 10
+            bc = tk.Canvas(row, width=BW, height=BH, bg=bg, highlightthickness=0, cursor='hand2')
+            bc.pack(side=tk.LEFT)
+
+            def _draw_add_bg(fill, c=bc, w=BW, h=BH, r=BR):
+                c.delete('all')
+                c.create_arc(0, 0, r*2, r*2, start=90, extent=90, fill=fill, outline=fill)
+                c.create_arc(w-r*2, 0, w, r*2, start=0, extent=90, fill=fill, outline=fill)
+                c.create_arc(0, h-r*2, r*2, h, start=180, extent=90, fill=fill, outline=fill)
+                c.create_arc(w-r*2, h-r*2, w, h, start=270, extent=90, fill=fill, outline=fill)
+                c.create_rectangle(r, 0, w-r, h, fill=fill, outline=fill)
+                c.create_rectangle(0, r, w, h-r, fill=fill, outline=fill)
+                c.create_text(w//2, h//2, text='＋ 添加', fill='#ffffff',
+                              font=('PingFang SC', 12, 'bold'))
+
+            _draw_add_bg(th['BG_BTN'])
+
+            def _center_add(e=None):
+                self._weather_add_city(center_entry.get())
+
+            center_entry.bind('<Return>', _center_add)
+            bc.bind('<Button-1>', _center_add)
+            bc.bind('<Enter>', lambda e: _draw_add_bg(th['FG_ACCENT']))
+            bc.bind('<Leave>', lambda e: _draw_add_bg(th['BG_BTN']))
+
+            # 等 holder 布局完成后再 place inner 居中
+            def _place_center(e=None, h=holder, i=inner):
+                i.place(in_=h, relx=0.5, rely=0.5, anchor='center')
+            holder.bind('<Configure>', _place_center)
+            center_entry.focus_set()
             return
         city = self._weather_selected
         data = get_cached_data(city)
@@ -2326,7 +2392,6 @@ class MainPanel:
         if index == 1:
             return '明天'
         try:
-            from datetime import datetime as _dt
             d = _dt.strptime(iso_date, '%Y-%m-%d')
             return d.strftime('%-m/%-d')
         except ValueError:

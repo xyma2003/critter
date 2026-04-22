@@ -1,19 +1,24 @@
 """
 data/storage — StorageRepository：书签 / 稍后再看 持久化层
 """
+import sys
 from datetime import datetime, timezone
 
 from data.settings import load_json, save_json
 
+_SAVED_AT_FORMATS = ('%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S')
+
 
 def _parse_saved_at(item):
-    """将 saved_at 字符串解析为 datetime，解析失败时返回 epoch。"""
+    """将 saved_at 字符串解析为 datetime，解析失败时返回 epoch（并打印警告）。"""
     raw = item.get('saved_at', '')
-    for fmt in ('%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S'):
+    for fmt in _SAVED_AT_FORMATS:
         try:
             return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
         except (ValueError, TypeError):
             continue
+    print(f'[storage] WARNING: unparseable saved_at {raw!r} for item id={item.get("id")}',
+          file=sys.stderr)
     return datetime.fromtimestamp(0, tz=timezone.utc)
 
 
@@ -48,6 +53,10 @@ class StorageRepository:
         If an item with the same id already exists it is silently replaced.
         Returns True on success, False on error.
         """
+        required = {'id', 'title', 'link', 'source', 'saved_at'}
+        missing = required - set(item.keys())
+        if missing:
+            print(f'[storage] WARNING: add() called with missing keys {missing}', file=sys.stderr)
         try:
             data = self._load()
             items = data.get(collection, [])
