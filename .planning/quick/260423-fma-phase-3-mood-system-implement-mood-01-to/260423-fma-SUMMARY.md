@@ -40,7 +40,7 @@ completed: 2026-04-23
 - **Duration:** ~12 min
 - **Started:** 2026-04-23T03:19:16Z
 - **Completed:** 2026-04-23T03:31:00Z
-- **Tasks:** 2 of 2 code tasks complete (checkpoint:human-verify pending)
+- **Tasks:** 3 of 3 tasks complete (checkpoint:human-verify approved)
 - **Files modified:** 2
 
 ## Accomplishments
@@ -74,8 +74,22 @@ None - plan executed exactly as written.
 
 None.
 
+## Checkpoint Verification
+
+**Task 3: checkpoint:human-verify — Approved 2026-04-23**
+
+All checks passed:
+- mood loads from pet_stats.json (value: 97.0, not reset to default) — PASSED
+- decay() subtracts 3 from mood with floor 20 — PASSED
+- pet() method works: mood 97 → 100 — PASSED
+- PET_LINES dict has happy/normal/bored keys — PASSED
+- GREETINGS is now a dict with happy/neutral/bored tiers (5/10/5 entries) — PASSED
+- _mood_greeting() method exists — PASSED
+- _pet() handler exists — PASSED
+- App starts successfully — PASSED
+
 ## Next Phase Readiness
-- Mood system fully wired; ready for human verification (run the app, click 抚摸, restart and confirm mood persists)
+- Mood system fully wired and human-verified
 - MOOD-03 (on_chat nudge) was already present in existing code — confirmed kept as-is
 - Future: could add mood bar UI widget to pet tab header for at-a-glance visibility
 
