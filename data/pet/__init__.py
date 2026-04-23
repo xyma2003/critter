@@ -28,7 +28,10 @@ class PetStats:
         data = load_json(PET_STATS_FILE, {})
         self.hunger = float(data.get('hunger', 80))
         self.energy = float(data.get('energy', 80))
-        self._compute_mood()
+        if 'mood' in data:
+            self.mood = float(data['mood'])
+        else:
+            self._compute_mood()   # one-time fallback only if no saved mood
 
     def _compute_mood(self):
         self.mood = (self.hunger * 0.5 + self.energy * 0.5)
@@ -39,7 +42,6 @@ class PetStats:
     def feed(self):
         self.hunger = self._clamp(self.hunger + 35)
         self.energy = self._clamp(self.energy + 10)
-        self._compute_mood()
         self._save()
 
     def play(self):
@@ -50,7 +52,6 @@ class PetStats:
 
     def rest(self):
         self.energy = self._clamp(self.energy + 40)
-        self._compute_mood()
         self._save()
 
     def on_chat(self):
@@ -58,11 +59,17 @@ class PetStats:
         self.mood = self._clamp(self.mood + 8)
         self._save()
 
+    def pet(self):
+        """抚摸：心情 +10，饱食 -5（消耗一点注意力）。"""
+        self.mood   = self._clamp(self.mood + 10)
+        self.hunger = self._clamp(self.hunger - 5)
+        self._save()
+
     def decay(self):
         """定时衰减，由 win.after 调用。"""
         self.hunger = self._clamp(self.hunger - self.HUNGER_DECAY)
         self.energy = self._clamp(self.energy - self.ENERGY_DECAY)
-        self._compute_mood()
+        self.mood   = self._clamp(max(20.0, self.mood - 3))
         self._save()
 
     def mood_emoji(self):
@@ -176,5 +183,23 @@ REST_LINES = {
         '其实我不困，但既然你让我休息……💤',
         '勉强躺一会儿吧，反正也没事做 😏',
         '好吧好吧，补个觉也不错 😌',
+    ],
+}
+
+PET_LINES = {
+    'happy': [
+        '呜呜被摸摸了！好开心好开心！😻',
+        '喵～ 再摸一下嘛！尾巴都翘起来了 😸',
+        '最喜欢铲屎官了！摸摸超舒服！😻✨',
+    ],
+    'normal': [
+        '嗯……摸摸，舒服~ 😌',
+        '喵。被摸到了最喜欢的地方 🐾',
+        '轻轻的，再来一下 😸',
+    ],
+    'bored': [
+        '……摸摸也没什么精神 😔',
+        '嗯……谢谢你，好一丢丢了 😐',
+        '虽然没精神，但摸摸还是喜欢的 😿',
     ],
 }
