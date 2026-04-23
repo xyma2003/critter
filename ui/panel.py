@@ -10,7 +10,7 @@ import hashlib
 from datetime import datetime as _dt
 import subprocess
 import random
-from config import THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE, CLAUDE_CLI, WEATHER_FILE
+from config import THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE, CLAUDE_CLI, WEATHER_FILE, DIARY_COUNTS_FILE
 from data.settings import load_json, save_json, load_settings, save_settings
 from utils.objc import load_objc, get_all_ns_windows, nsstring_to_py, set_collection_behavior, find_ns_window_by_title
 from data.storage import StorageRepository
@@ -290,6 +290,9 @@ class MainPanel:
             if not self._news_loaded:
                 self._news_loaded = True
                 self._load_news_async(force=False)
+
+        if key == 'notes':
+            self._check_and_generate_diary()
 
         if key == 'weather':
             if not self._weather_loaded:
@@ -1884,6 +1887,7 @@ class MainPanel:
         self._animate_stats_to({'hunger': self.stats.hunger, 'energy': self.stats.energy})
         self._log_pet(random.choice(FEED_LINES[bucket]))
         self.pet.trigger_bounce()
+        self._increment_diary_count('feed')
 
     def _play(self):
         energy = self.stats.energy
@@ -1897,6 +1901,7 @@ class MainPanel:
         self._animate_stats_to({'mood': self.stats.mood, 'hunger': self.stats.hunger, 'energy': self.stats.energy})
         self._log_pet(random.choice(PLAY_LINES[bucket]))
         self.pet.trigger_bounce()
+        self._increment_diary_count('play')
 
     def _sleep(self):
         energy = self.stats.energy
@@ -1909,6 +1914,7 @@ class MainPanel:
         self.stats.rest()
         self._animate_stats_to({'energy': self.stats.energy})
         self._log_pet(random.choice(REST_LINES[bucket]))
+        self._increment_diary_count('rest')
 
     def _pet(self):
         mood = self.stats.mood
@@ -1922,6 +1928,30 @@ class MainPanel:
         self._animate_stats_to({'mood': self.stats.mood, 'hunger': self.stats.hunger})
         self._log_pet(random.choice(PET_LINES[bucket]))
         self.pet.trigger_bounce()
+        self._increment_diary_count('pet')
+
+    # ── 日记互动计数 ──────────────────────────────────
+
+    def _today_str(self):
+        import datetime
+        return datetime.date.today().isoformat()   # 'YYYY-MM-DD'
+
+    def _load_diary_counts(self):
+        return load_json(DIARY_COUNTS_FILE, {})
+
+    def _increment_diary_count(self, action):
+        """action: 'feed' | 'play' | 'rest' | 'pet'"""
+        today = self._today_str()
+        counts = self._load_diary_counts()
+        day = counts.get(today, {'feed': 0, 'play': 0, 'rest': 0, 'pet': 0})
+        day[action] = day.get(action, 0) + 1
+        counts[today] = day
+        save_json(DIARY_COUNTS_FILE, counts)
+
+    def _get_diary_counts_today(self):
+        today = self._today_str()
+        counts = self._load_diary_counts()
+        return counts.get(today, {'feed': 0, 'play': 0, 'rest': 0, 'pet': 0})
 
     # ══════════════════════════════════════════════════
     #  Tab: 便签
@@ -1974,12 +2004,57 @@ class MainPanel:
         self._notes_list_frame = None
         self._notes_mode = 'list'  # 'list' | 'edit'
 
+        self._check_and_generate_diary()
+
         if notes_service.load_all():
             self._notes_show_list()
         else:
             self._notes_open_editor(None)
 
         return frame
+
+    def _check_and_generate_diary(self):
+        """如果今天还没有日记，后台生成一条。每次打开便签 Tab 时调用。"""
+        today = self._today_str()
+        all_notes = notes_service.load_all()
+        already_exists = any(
+            n.get('kind') == 'diary' and n.get('date') == today
+            for n in all_notes
+        )
+        if already_exists:
+            return
+        # 后台生成，不阻塞 UI
+        counts = self._get_diary_counts_today()
+        stats_snap = {
+            'mood': round(self.stats.mood, 1),
+            'hunger': round(self.stats.hunger, 1),
+            'energy': round(self.stats.energy, 1),
+            'mood_label': self.stats.mood_label(),
+        }
+        pet_name = self.pet.settings.get('pet_name', '小猫')
+        pet_personality = self.pet.settings.get('pet_personality', '温柔')
+        pet_catchphrase = self.pet.settings.get('pet_catchphrase', '喵~')
+
+        def _gen():
+            try:
+                import services.diary as diary_service
+                text = diary_service.generate_diary(
+                    stats_snap, counts, pet_name, pet_personality, pet_catchphrase, today
+                )
+                if text:
+                    notes_service.create_diary(text, today)
+                    # 如果当前仍在 notes list 模式，刷新列表
+                    if self.win and self.win.winfo_exists():
+                        self.win.after(0, self._notes_refresh_if_list)
+            except Exception:
+                pass
+
+        threading.Thread(target=_gen, daemon=True).start()
+
+    def _notes_refresh_if_list(self):
+        """如果当前在便签列表模式，刷新列表（日记生成完毕后调用）。"""
+        if getattr(self, '_notes_mode', 'list') == 'list':
+            self._notes_show_list()
 
     def _notes_show_list(self):
         self._notes_mode = 'list'

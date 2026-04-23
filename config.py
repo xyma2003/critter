@@ -14,6 +14,7 @@ USER_PROFILE_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/use
 CHAT_HISTORY_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/chat_history.json")
 PET_STATS_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/pet_stats.json")
 PET_AVATAR_FILE   = os.path.expanduser("~/.openclaw/workspace/desktop-pet/data/pet_avatar.png")
+DIARY_COUNTS_FILE = os.path.expanduser("~/.openclaw/workspace/desktop-pet/diary_counts.json")
 CACHE_TTL         = 30 * 60   # 30 分钟
 CLAUDE_CLI        = '/opt/homebrew/bin/claude'
 
