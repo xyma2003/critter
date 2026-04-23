@@ -89,6 +89,7 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260420-fw5 | 宠物自定义：名字、性格、口头禅，注入 system prompt，UI 显示宠物名字 | 2026-04-20 | 7b5a7be | [260420-fw5-system-prompt-ui](.planning/quick/260420-fw5-system-prompt-ui/) |
 | 260420-tv8 | 用 Pillow 生成可爱正脸卡通猫替换 DesktopPet Canvas 向量猫 | 2026-04-20 | 860d6ee | [260420-tv8-pillow-desktoppet-canvas](.planning/quick/260420-tv8-pillow-desktoppet-canvas/) |
+| 260423-fma | 情绪系统 MOOD-01~07：mood 独立持久化、衰减、抚摸按钮、分层问候语 | 2026-04-23 | 14b997a | [260423-fma-phase-3-mood-system-implement-mood-01-to](.planning/quick/260423-fma-phase-3-mood-system-implement-mood-01-to/) |
 
 ### Blockers/Concerns
 
@@ -98,6 +99,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-22T06:18:20.862Z
-Stopped at: Completed 02-weather-tab 02-03-PLAN.md (checkpoint: awaiting human verify)
+Last session: 2026-04-23T03:31:00Z
+Stopped at: Completed quick task 260423-fma (checkpoint:human-verify pending user approval)
 Resume file: None
