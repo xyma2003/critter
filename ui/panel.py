@@ -271,13 +271,37 @@ class MainPanel:
                 self._rebuild_city_list()
                 self._render_current_weather()
                 for city in self._weather_cities:
-                    self._load_weather_async(city)
+                    self._load_weather_async(city, force=True)
+            elif self._weather_selected:
+                # 每次切换到天气 tab 强制拉取最新数据
+                self._weather_status.configure(text='正在更新...')
+                self._load_weather_async(self._weather_selected, force=True)
 
     # ── 主题切换 ──────────────────────────────────────
 
     def _apply_theme(self, mode):
         self._theme_mode = mode
         th = THEMES[mode]
+        # 预计算颜色映射，避免 _recolor_widget 每次递归都重建
+        self._color_bg_map = {}
+        self._color_fg_map = {}
+        for t in THEMES.values():
+            self._color_bg_map[t['BG_WIN']]     = th['BG_WIN']
+            self._color_bg_map[t['BG_SIDEBAR']] = th['BG_SIDEBAR']
+            self._color_bg_map[t['BG_CONTENT']] = th['BG_CONTENT']
+            self._color_bg_map[t['BG_CARD']]    = th['BG_CARD']
+            self._color_bg_map[t['BG_TOOLBAR']] = th['BG_TOOLBAR']
+            self._color_bg_map[t['BG_HOVER']]   = th['BG_HOVER']
+            self._color_bg_map[t['BG_SEL']]     = th['BG_SEL']
+            self._color_bg_map[t['BG_BTN']]     = th['BG_BTN']
+            self._color_bg_map[t['ACCENT_BAR']] = th['ACCENT_BAR']
+            self._color_fg_map[t['FG_MAIN']]    = th['FG_MAIN']
+            self._color_fg_map[t['FG_DIM']]     = th['FG_DIM']
+            self._color_fg_map[t['FG_MUTED']]   = th['FG_MUTED']
+            self._color_fg_map[t['FG_ACCENT']]  = th['FG_ACCENT']
+            self._color_fg_map[t['FG_GREEN']]   = th['FG_GREEN']
+            self._color_fg_map[t['BORDER']]     = th['BORDER']
+            self._color_fg_map[t['DIVIDER']]    = th['DIVIDER']
         self._recolor_widget(self.win, th)
         self._switch_tab(self._active_tab)
 
@@ -288,25 +312,8 @@ class MainPanel:
         except Exception:
             cur_bg = None
 
-        all_bgs = {}
-        all_fgs = {}
-        for t in THEMES.values():
-            all_bgs[t['BG_WIN']]       = th['BG_WIN']
-            all_bgs[t['BG_SIDEBAR']]   = th['BG_SIDEBAR']
-            all_bgs[t['BG_CONTENT']]   = th['BG_CONTENT']
-            all_bgs[t['BG_CARD']]      = th['BG_CARD']
-            all_bgs[t['BG_TOOLBAR']]   = th['BG_TOOLBAR']
-            all_bgs[t['BG_HOVER']]     = th['BG_HOVER']
-            all_bgs[t['BG_SEL']]       = th['BG_SEL']
-            all_bgs[t['BG_BTN']]       = th['BG_BTN']
-            all_bgs[t['ACCENT_BAR']]   = th['ACCENT_BAR']
-            all_fgs[t['FG_MAIN']]      = th['FG_MAIN']
-            all_fgs[t['FG_DIM']]       = th['FG_DIM']
-            all_fgs[t['FG_MUTED']]     = th['FG_MUTED']
-            all_fgs[t['FG_ACCENT']]    = th['FG_ACCENT']
-            all_fgs[t['FG_GREEN']]     = th['FG_GREEN']
-            all_fgs[t['BORDER']]       = th['BORDER']
-            all_fgs[t['DIVIDER']]      = th['DIVIDER']
+        all_bgs = self._color_bg_map
+        all_fgs = self._color_fg_map
 
         if cur_bg and cur_bg in all_bgs:
             try:
@@ -791,6 +798,20 @@ class MainPanel:
             self.win.after(30000, _tick)
 
         _tick()
+
+    @staticmethod
+    def _make_scrollable_frame(parent, bg):
+        """Create a scrollable canvas area. Returns (canvas, inner_frame)."""
+        canvas = tk.Canvas(parent, bg=bg, highlightthickness=0)
+        sb = tk.Scrollbar(parent, orient='vertical', command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        inner = tk.Frame(canvas, bg=bg)
+        win_id = canvas.create_window((0, 0), window=inner, anchor='nw')
+        inner.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.bind('<Configure>', lambda e: canvas.itemconfig(win_id, width=e.width))
+        return canvas, inner
 
     @staticmethod
     def _draw_rounded_rect(canvas, w, h, r, bg, tag):
@@ -1278,16 +1299,7 @@ class MainPanel:
         self._news_collection_frame = frame
 
         # Scrollable list
-        canvas = tk.Canvas(frame, bg=th['BG_CONTENT'], highlightthickness=0)
-        sb = tk.Scrollbar(frame, orient='vertical', command=canvas.yview)
-        canvas.configure(yscrollcommand=sb.set)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        inner = tk.Frame(canvas, bg=th['BG_CONTENT'])
-        win_id = canvas.create_window((0, 0), window=inner, anchor='nw')
-        inner.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
-        canvas.bind('<Configure>', lambda e: canvas.itemconfig(win_id, width=e.width))
+        canvas, inner = self._make_scrollable_frame(frame, th['BG_CONTENT'])
 
         def _scroll(e):
             if abs(e.delta) <= 10:
@@ -1440,11 +1452,11 @@ class MainPanel:
     def _schedule_news_refresh(self):
         """Schedule the next automatic news refresh based on auto_refresh_min setting."""
         if self._news_refresh_job is not None:
+            job, self._news_refresh_job = self._news_refresh_job, None
             try:
-                self.win.after_cancel(self._news_refresh_job)
+                self.win.after_cancel(job)
             except Exception:
                 pass
-            self._news_refresh_job = None
         mins = int(self.pet.settings.get('auto_refresh_min', 30))
         if mins > 0 and self.win and self.win.winfo_exists():
             self._news_refresh_job = self.win.after(
@@ -1937,16 +1949,7 @@ class MainPanel:
         outer.pack(fill=tk.BOTH, expand=True)
         self._notes_list_frame = outer
 
-        canvas = tk.Canvas(outer, bg=th['BG_CONTENT'], highlightthickness=0)
-        sb = tk.Scrollbar(outer, orient='vertical', command=canvas.yview)
-        canvas.configure(yscrollcommand=sb.set)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        inner = tk.Frame(canvas, bg=th['BG_CONTENT'])
-        win_id = canvas.create_window((0, 0), window=inner, anchor='nw')
-        inner.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
-        canvas.bind('<Configure>', lambda e: canvas.itemconfig(win_id, width=e.width))
+        _, inner = self._make_scrollable_frame(outer, th['BG_CONTENT'])
 
         grid = tk.Frame(inner, bg=th['BG_CONTENT'])
         grid.pack(fill=tk.X, padx=16, pady=16)
@@ -2116,8 +2119,6 @@ class MainPanel:
         refresh_btn.bind('<Enter>', lambda e: refresh_btn.configure(fg=th['FG_MAIN']))
         refresh_btn.bind('<Leave>', lambda e: refresh_btn.configure(fg=th['FG_ACCENT']))
         self._weather_refresh_btn = refresh_btn
-        # 占位属性，有城市后左侧列表也可触发添加（通过居中区）
-        self._weather_city_entry = None
 
         # 分隔线（工具栏下方）
         tk.Frame(frame, bg=th['DIVIDER'], height=1).pack(fill=tk.X)
@@ -2232,8 +2233,10 @@ class MainPanel:
             return
         self._weather_fetching.add(city)
         def run():
-            data, from_cache, err = fetch_weather(city, force=force)
-            self._weather_fetching.discard(city)
+            try:
+                data, from_cache, err = fetch_weather(city, force=force)
+            finally:
+                self._weather_fetching.discard(city)
             if self.win and self.win.winfo_exists():
                 self.win.after(0, lambda: self._on_weather_loaded(city, data, err))
         threading.Thread(target=run, daemon=True).start()
@@ -2248,6 +2251,35 @@ class MainPanel:
         self._weather_status.configure(text=f'{tstr} 已更新' if tstr else '已更新')
         if city == self._weather_selected:
             self._render_current_weather()
+
+    def _render_weather_loading(self):
+        """在右侧主区域显示旋转加载动画，数据到达后会被 _render_current_weather 替换。"""
+        th = THEMES[self._theme_mode]
+        bg = th['BG_CONTENT']
+        _FRAMES = ('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+
+        holder = tk.Frame(self._weather_main_frame, bg=bg)
+        holder.pack(fill=tk.BOTH, expand=True)
+        inner = tk.Frame(holder, bg=bg)
+
+        spinner_lbl = tk.Label(inner, text=_FRAMES[0], bg=bg,
+                               fg=th['FG_ACCENT'], font=('PingFang SC', 22))
+        spinner_lbl.pack(pady=(0, 6))
+        tk.Label(inner, text='正在获取天气...', bg=bg,
+                 fg=th['FG_MUTED'], font=('PingFang SC', 12)).pack()
+
+        def _place_center(e=None, h=holder, i=inner):
+            i.place(in_=h, relx=0.5, rely=0.5, anchor='center')
+        holder.bind('<Configure>', _place_center)
+
+        frame_idx = [0]
+        def _tick():
+            if not (spinner_lbl.winfo_exists() and self._weather_main_frame.winfo_exists()):
+                return
+            frame_idx[0] = (frame_idx[0] + 1) % len(_FRAMES)
+            spinner_lbl.configure(text=_FRAMES[frame_idx[0]])
+            spinner_lbl.after(100, _tick)
+        _tick()
 
     def _render_current_weather(self):
         th = THEMES[self._theme_mode]
@@ -2271,12 +2303,7 @@ class MainPanel:
             # Canvas 画圆角背景
             sc = tk.Canvas(row, width=SW, height=SH, bg=bg, highlightthickness=0)
             sc.pack(side=tk.LEFT, padx=(0, 10))
-            sc.create_arc(0, 0, SR*2, SR*2, start=90, extent=90, fill=search_bg, outline=search_bg)
-            sc.create_arc(SW-SR*2, 0, SW, SR*2, start=0, extent=90, fill=search_bg, outline=search_bg)
-            sc.create_arc(0, SH-SR*2, SR*2, SH, start=180, extent=90, fill=search_bg, outline=search_bg)
-            sc.create_arc(SW-SR*2, SH-SR*2, SW, SH, start=270, extent=90, fill=search_bg, outline=search_bg)
-            sc.create_rectangle(SR, 0, SW-SR, SH, fill=search_bg, outline=search_bg)
-            sc.create_rectangle(0, SR, SW, SH-SR, fill=search_bg, outline=search_bg)
+            self._draw_rounded_rect(sc, SW, SH, SR, search_bg, 'search_bg')
             # sf 用 place 叠在 Canvas 上，背景同色，不用 create_window
             sf = tk.Frame(sc, bg=search_bg, bd=0)
             sf.place(x=0, y=0, width=SW, height=SH)
@@ -2294,12 +2321,7 @@ class MainPanel:
 
             def _draw_add_bg(fill, c=bc, w=BW, h=BH, r=BR):
                 c.delete('all')
-                c.create_arc(0, 0, r*2, r*2, start=90, extent=90, fill=fill, outline=fill)
-                c.create_arc(w-r*2, 0, w, r*2, start=0, extent=90, fill=fill, outline=fill)
-                c.create_arc(0, h-r*2, r*2, h, start=180, extent=90, fill=fill, outline=fill)
-                c.create_arc(w-r*2, h-r*2, w, h, start=270, extent=90, fill=fill, outline=fill)
-                c.create_rectangle(r, 0, w-r, h, fill=fill, outline=fill)
-                c.create_rectangle(0, r, w, h-r, fill=fill, outline=fill)
+                self._draw_rounded_rect(c, w, h, r, fill, 'btn_bg')
                 c.create_text(w//2, h//2, text='＋ 添加', fill='#ffffff',
                               font=('PingFang SC', 12, 'bold'))
 
@@ -2322,8 +2344,7 @@ class MainPanel:
         city = self._weather_selected
         data = get_cached_data(city)
         if not data:
-            tk.Label(self._weather_main_frame, text='加载中...', bg=th['BG_CONTENT'],
-                     fg=th['FG_MUTED'], font=('PingFang SC', 12)).pack(pady=40)
+            self._render_weather_loading()
             return
         emoji = code_to_emoji(data['code'])
         # Current conditions card

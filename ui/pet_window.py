@@ -118,6 +118,8 @@ class DesktopPet:
 
     def _keep_on_top(self):
         """每 2 秒重置 level，防止全屏切换后被压到底层。"""
+        if not (self.root and self.root.winfo_exists()):
+            return
         result = self._get_nswindow()
         if result:
             objc, sel, w = result
