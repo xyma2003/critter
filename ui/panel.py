@@ -69,6 +69,8 @@ class MainPanel:
         self.stats = PetStats()            # 心情 / 饱食 / 精力数值
         self._clock_running = False
         self._decay_running = False
+        self._chat_thinking = False
+        self._chat_started = False
         self._home_emoji = None
         self._home_emoji_id = None
         self._pet_emoji_label = None
@@ -1263,7 +1265,8 @@ class MainPanel:
             if cols != self._news_canvas_last_cols:
                 self._news_canvas_last_cols = cols
                 if hasattr(self, '_news_sections_cache') and self._news_sections_cache:
-                    self._render_news(self._news_sections_cache, self._news_status.cget('text'), cols=cols)
+                    status = self._news_status.cget('text') if hasattr(self, '_news_status') and self._news_status.winfo_exists() else ''
+                    self._render_news(self._news_sections_cache, status, cols=cols)
         canvas.bind('<Configure>', _on_canvas_resize)
 
         def _scroll(e):
