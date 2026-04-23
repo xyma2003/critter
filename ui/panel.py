@@ -1709,7 +1709,8 @@ class MainPanel:
         btn_frame.pack(pady=16)
         for text, action in [('🐟 喂食', self._feed),
                               ('🎾 玩耍', self._play),
-                              ('🤲 抚摸', self._pet)]:
+                              ('🤲 抚摸', self._pet),
+                              ('💤 休息', self._sleep)]:
             b = tk.Label(btn_frame, text=text, bg=th['BG_CARD'], fg=th['FG_MAIN'],
                          font=('PingFang SC', 12), cursor='hand2',
                          padx=12, pady=8,
