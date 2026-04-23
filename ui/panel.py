@@ -73,7 +73,7 @@ class MainPanel:
         self._chat_started = False
         self._home_emoji = None
         self._home_emoji_id = None
-        self._pet_emoji_label = None
+        self._pet_avatar_canvas = None
         self._chat_topbar_emoji = None
         self._picker_frame = None
         self._news_collection_frame = None
@@ -119,9 +119,7 @@ class MainPanel:
             self.win.deiconify()
             self.win.lift()
             self.win.focus_force()
-            if hasattr(self, '_pet_emoji_label'):
-                self._pet_emoji_label.configure(
-                    text=self.pet.settings.get('pet_emoji', '🐱'))
+            self._refresh_pet_tab_avatar()
             if self._home_emoji:
                 self._home_emoji.itemconfig(self._home_emoji_id,
                     text=self.pet.settings.get('pet_emoji', '🐱'))
@@ -1679,10 +1677,11 @@ class MainPanel:
         left = tk.Frame(body, bg=th['BG_CONTENT'])
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 20))
 
-        self._pet_emoji_label = tk.Label(left,
-            text=self.stats.mood_emoji(),
-            bg=th['BG_CONTENT'], font=('Apple Color Emoji', 72))
-        self._pet_emoji_label.pack(pady=(20, 4))
+        self._pet_avatar_canvas = tk.Canvas(
+            left, width=60, height=60,
+            bg=th['BG_CONTENT'], highlightthickness=0, bd=0)
+        self._pet_avatar_canvas.pack(pady=(20, 4))
+        self._refresh_pet_tab_avatar()
 
         self._pet_mood_lbl = tk.Label(left, text=self.stats.mood_label(),
             bg=th['BG_CONTENT'], fg=th['FG_ACCENT'],
@@ -1773,8 +1772,7 @@ class MainPanel:
         mood_em = s.mood_emoji()
 
         # 宠物 tab emoji 和心情文字
-        if hasattr(self, '_pet_emoji_label') and self._pet_emoji_label.winfo_exists():
-            self._pet_emoji_label.configure(text=mood_em)
+        self._refresh_pet_tab_avatar()
         if hasattr(self, '_pet_mood_lbl') and self._pet_mood_lbl.winfo_exists():
             self._pet_mood_lbl.configure(text=s.mood_label())
 
@@ -2511,6 +2509,26 @@ class MainPanel:
             b.pack(side=tk.LEFT)
             b.bind('<Button-1>', lambda ev, em=e: self._set_emoji(em))
 
+        # ── 自定义头像行 ──
+        tk.Frame(card1, bg=th['DIVIDER'], height=1).pack(fill=tk.X, padx=16)
+        row_avatar = tk.Frame(card1, bg=th['BG_CARD'])
+        row_avatar.pack(fill=tk.X, padx=16, pady=10)
+        tk.Label(row_avatar, text='自定义头像', bg=th['BG_CARD'], fg=th['FG_MUTED'],
+                 font=('PingFang SC', 11), width=8, anchor='w').pack(side=tk.LEFT)
+        btn_upload = tk.Label(row_avatar, text='上传图片', bg=th['FG_ACCENT'],
+                              fg='#ffffff', font=('PingFang SC', 11), padx=10, pady=3,
+                              cursor='hand2')
+        btn_upload.pack(side=tk.LEFT, padx=(0, 8))
+        btn_upload.bind('<Button-1>', lambda e: self._upload_avatar())
+        btn_reset = tk.Label(row_avatar, text='重置默认', bg=th['BG_HOVER'],
+                             fg=th['FG_MUTED'], font=('PingFang SC', 11), padx=10, pady=3,
+                             cursor='hand2')
+        btn_reset.pack(side=tk.LEFT)
+        btn_reset.bind('<Button-1>', lambda e: self._reset_avatar())
+        self._avatar_status = tk.Label(row_avatar, text='', bg=th['BG_CARD'],
+                                       fg=th['FG_GREEN'], font=('PingFang SC', 11))
+        self._avatar_status.pack(side=tk.LEFT, padx=(10, 0))
+
         card2 = _section('宠物性格')
 
         # Row A — 宠物名字
@@ -2589,10 +2607,67 @@ class MainPanel:
     def _set_emoji(self, em):
         self._emoji_var.set(em)
         self.pet.set_emoji(em)
-        if hasattr(self, '_pet_emoji_label'):
-            self._pet_emoji_label.configure(text=em)
+        self._refresh_pet_tab_avatar()
         if hasattr(self, '_home_emoji') and self._home_emoji:
             self._home_emoji.itemconfig(self._home_emoji_id, text=em)
+
+    def _refresh_pet_tab_avatar(self):
+        """刷新 Pet Tab 左侧头像 Canvas：有自定义图则显示圆形图，否则显示 mood emoji。"""
+        if not (hasattr(self, '_pet_avatar_canvas') and
+                self._pet_avatar_canvas.winfo_exists()):
+            return
+        c = self._pet_avatar_canvas
+        c.delete('all')
+        from config import PET_AVATAR_FILE
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+            if os.path.exists(PET_AVATAR_FILE):
+                size4 = 240
+                img = Image.open(PET_AVATAR_FILE).convert('RGBA')
+                img = img.resize((size4, size4), Image.LANCZOS)
+                mask = Image.new('L', (size4, size4), 0)
+                ImageDraw.Draw(mask).ellipse((0, 0, size4, size4), fill=255)
+                img.putalpha(mask)
+                img = img.resize((60, 60), Image.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                c.create_image(30, 30, image=photo, anchor='center')
+                c._img_ref = photo
+                return
+        except Exception:
+            pass
+        # fallback: mood emoji
+        c.create_text(30, 30, text=self.stats.mood_emoji(),
+                      font=('Apple Color Emoji', 40), anchor='center')
+
+    def _upload_avatar(self):
+        """打开文件选择对话框，复制到 PET_AVATAR_FILE，刷新悬浮窗和 Pet Tab。"""
+        from tkinter import filedialog
+        import shutil
+        path = filedialog.askopenfilename(
+            title='选择宠物图片',
+            filetypes=[('图片', '*.png *.jpg *.jpeg *.webp'), ('所有文件', '*.*')]
+        )
+        if not path:
+            return
+        from config import PET_AVATAR_FILE
+        os.makedirs(os.path.dirname(PET_AVATAR_FILE), exist_ok=True)
+        shutil.copy(path, PET_AVATAR_FILE)
+        self.pet.reload_avatar()
+        self._refresh_pet_tab_avatar()
+        if hasattr(self, '_avatar_status'):
+            self._avatar_status.configure(text='已更新')
+            self.win.after(2000, lambda: self._avatar_status.configure(text=''))
+
+    def _reset_avatar(self):
+        """删除 PET_AVATAR_FILE，恢复悬浮窗 emoji 和 Pet Tab mood emoji。"""
+        from config import PET_AVATAR_FILE
+        if os.path.exists(PET_AVATAR_FILE):
+            os.remove(PET_AVATAR_FILE)
+        self.pet.reload_avatar()
+        self._refresh_pet_tab_avatar()
+        if hasattr(self, '_avatar_status'):
+            self._avatar_status.configure(text='已恢复默认')
+            self.win.after(2000, lambda: self._avatar_status.configure(text=''))
 
     def _save_settings(self):
         s = self.pet.settings
