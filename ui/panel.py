@@ -6,6 +6,7 @@ import threading
 import json
 import time
 import re
+import hashlib
 from datetime import datetime as _dt
 import subprocess
 import random
@@ -25,6 +26,9 @@ class MainPanel:
     WIN_W, WIN_H = 1024, 620
     NAV_W = 80
     _NEWS_COL_MIN_W = 280
+    _RANK_COLORS = ['#ef5350', '#ff7043', '#ffa726']
+    _SOURCE_ICONS = {'Google Trends': '🔍', '百度热点': '🔥', '微博热搜': '💬'}
+    _PERSONALITIES = ['温柔', '活泼', '傲娇', '淡定', '搞笑']
 
     GREETINGS = {
         'happy': [
@@ -1364,8 +1368,7 @@ class MainPanel:
 
             # Open link on row click
             def _click(e, link=item.get('link')):
-                if link:
-                    subprocess.Popen(['open', link])
+                self._open_link(link)
             row.bind('<Button-1>', _click)
             text_col.bind('<Button-1>', _click)
 
@@ -1491,9 +1494,15 @@ class MainPanel:
                 lambda: self._load_news_async(force=True)
             )
 
+    @staticmethod
+    def _open_link(link):
+        """Open a URL in the default browser."""
+        if link:
+            subprocess.Popen(['open', link])
+
     def _make_toggle_handler(self, collection, icon_off, icon_on):
         """Return a <Button-1> handler that toggles item membership in `collection`."""
-        def _handler(e, btn=None, sid=None, iid=None):
+        def _handler(e, btn, sid, iid):
             ids = {x['id'] for x in self._storage.list_items(collection)}
             if iid in ids:
                 self._storage.remove(collection, iid)
@@ -1534,11 +1543,10 @@ class MainPanel:
 
     def _render_news_section(self, col_frame, sec, th, bm_ids, rl_ids,
                               canvas_w, cols, _toggle_bm, _toggle_rl):
-        SOURCE_ICONS = {'Google Trends': '🔍', '百度热点': '🔥', '微博热搜': '💬'}
 
         header = tk.Frame(col_frame, bg=th['BG_CONTENT'])
         header.pack(fill=tk.X, pady=(0, 6))
-        icon = SOURCE_ICONS.get(sec['source'], '📰')
+        icon = self._SOURCE_ICONS.get(sec['source'], '📰')
         tk.Label(header, text=icon,
                  bg=th['BG_CONTENT'], font=('Apple Color Emoji', 13)).pack(side=tk.LEFT)
         tk.Label(header, text=f"  {sec['source']}",
@@ -1560,13 +1568,10 @@ class MainPanel:
 
     def _render_news_item(self, card, item, i, sec, th, bm_ids, rl_ids,
                           canvas_w, cols, _toggle_bm, _toggle_rl):
-        import hashlib
-        RANK_COLORS = ['#ef5350', '#ff7043', '#ffa726']
-
         row = tk.Frame(card, bg=th['BG_CARD'], cursor='hand2')
         row.pack(fill=tk.X)
 
-        rank_color = RANK_COLORS[i] if i < 3 else th['FG_MUTED']
+        rank_color = self._RANK_COLORS[i] if i < 3 else th['FG_MUTED']
         num_canvas = tk.Canvas(row, width=22, height=22,
                                bg=th['BG_CARD'], highlightthickness=0)
         num_canvas.pack(side=tk.LEFT, padx=(10, 0), pady=8)
@@ -1634,8 +1639,7 @@ class MainPanel:
             if ii >= 3:
                 n.itemconfig(1, fill=rc)
         def _click(e, link=item.get('link')):
-            if link:
-                subprocess.Popen(['open', link])
+            self._open_link(link)
         for w in (row, num_canvas, title_lbl):
             w.bind('<Enter>', _enter)
             w.bind('<Leave>', _leave)
@@ -2198,6 +2202,9 @@ class MainPanel:
 
     def _rebuild_city_list(self):
         th = THEMES[self._theme_mode]
+        if not (hasattr(self, '_weather_city_list_frame') and
+                self._weather_city_list_frame.winfo_exists()):
+            return
         for w in self._weather_city_list_frame.winfo_children():
             w.destroy()
         if not self._weather_cities:
@@ -2554,7 +2561,7 @@ class MainPanel:
 
         def _update_personality_btns():
             for child in row_personality.winfo_children():
-                if isinstance(child, tk.Label) and child.cget('text') in ['温柔', '活泼', '傲娇', '淡定', '搞笑']:
+                if isinstance(child, tk.Label) and child.cget('text') in self._PERSONALITIES:
                     if child.cget('text') == self._personality_var.get():
                         child.configure(bg=th['FG_ACCENT'], fg='#ffffff',
                                         highlightbackground=th['FG_ACCENT'])
@@ -2562,7 +2569,7 @@ class MainPanel:
                         child.configure(bg=th['BG_CARD'], fg=th['FG_MAIN'],
                                         highlightbackground=th['BORDER'])
 
-        for opt in ['温柔', '活泼', '傲娇', '淡定', '搞笑']:
+        for opt in self._PERSONALITIES:
             b = tk.Label(row_personality, text=opt,
                          font=('PingFang SC', 11), cursor='hand2',
                          padx=10, pady=4,

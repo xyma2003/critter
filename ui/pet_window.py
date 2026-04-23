@@ -89,31 +89,43 @@ class DesktopPet:
             return
         objc, sel, w = result
         try:
-            # 透明背景
+            # 使用独立函数指针，避免修改全局 objc_msgSend argtypes 污染后续调用
+            send = objc.objc_msgSend
+
+            # clearColor
+            send.restype = ctypes.c_void_p
+            send.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
             NSColor_cls = objc.objc_getClass(b'NSColor')
-            objc.objc_msgSend.restype = ctypes.c_void_p
-            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-            clear = objc.objc_msgSend(NSColor_cls, sel('clearColor'))
+            clear = send(NSColor_cls, sel('clearColor'))
 
-            objc.objc_msgSend.restype = None
-            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool]
-            objc.objc_msgSend(w, sel('setOpaque:'), ctypes.c_bool(False))
+            # setOpaque: NO
+            send.restype = None
+            send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool]
+            send(w, sel('setOpaque:'), ctypes.c_bool(False))
 
-            objc.objc_msgSend.restype = None
-            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-            objc.objc_msgSend(w, sel('setBackgroundColor:'), clear)
+            # setBackgroundColor: clearColor
+            send.restype = None
+            send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+            send(w, sel('setBackgroundColor:'), clear)
 
-            # NSScreenSaverWindowLevel=1000，高于全屏应用（kCGFloatingWindowLevel=5）
-            set_window_level(objc, sel, w, 1000)
+            # setLevel: NSScreenSaverWindowLevel=1000
+            send.restype = None
+            send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long]
+            send(w, sel('setLevel:'), ctypes.c_long(1000))
 
-            # 让窗口出现在所有 Space（包括全屏应用的 Space）
-            # NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
-            # NSWindowCollectionBehaviorStationary = 1 << 4
-            set_collection_behavior(objc, sel, w, (1 << 0) | (1 << 4))
+            # setCollectionBehavior: CanJoinAllSpaces | Stationary
+            send.restype = None
+            send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
+            send(w, sel('setCollectionBehavior:'), ctypes.c_ulong((1 << 0) | (1 << 4)))
 
-            objc.objc_msgSend.restype = ctypes.c_void_p
-            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-            objc.objc_msgSend(w, sel('display'))
+            # display
+            send.restype = None
+            send.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            send(w, sel('display'))
+
+            # 还原为安全的默认签名，避免后续 tkinter 内部调用时签名错误导致 segfault
+            send.restype = ctypes.c_void_p
+            send.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         except Exception:
             pass
 

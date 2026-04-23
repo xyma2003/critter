@@ -82,6 +82,9 @@ def set_window_level(objc, sel, nswin, level):
     objc.objc_msgSend.restype = None
     objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long]
     objc.objc_msgSend(nswin, sel('setLevel:'), ctypes.c_long(level))
+    # 还原默认签名，防止污染后续调用
+    objc.objc_msgSend.restype = ctypes.c_void_p
+    objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 
 
 def set_collection_behavior(objc, sel, nswin, behavior):
@@ -89,6 +92,9 @@ def set_collection_behavior(objc, sel, nswin, behavior):
     objc.objc_msgSend.restype = None
     objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
     objc.objc_msgSend(nswin, sel('setCollectionBehavior:'), ctypes.c_ulong(behavior))
+    # 还原默认签名，防止污染后续调用
+    objc.objc_msgSend.restype = ctypes.c_void_p
+    objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 
 
 def find_ns_window_by_title(objc, sel, msg0, title):
