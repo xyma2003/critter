@@ -1839,22 +1839,45 @@ class MainPanel:
         self._pet_log.insert('1.0', f'[{ts}] {msg}\n')
         self._pet_log.configure(state=tk.DISABLED)
 
-    def _flash_emoji(self, flash_em, duration_ms=700):
-        """短暂显示 flash_em，然后恢复到当前心情 emoji。"""
-        def _restore():
-            if self.win and self.win.winfo_exists():
+    def _animate_stats_to(self, targets, steps=20, interval_ms=30):
+        """将进度条从当前显示值平滑过渡到 targets（dict: key->目标值）。
+        targets 里只需包含要动画的 key，其余 key 保持不变。
+        """
+        if not (self.win and self.win.winfo_exists()):
+            return
+        # 读当前进度条显示的宽度，反推当前显示值
+        current = {}
+        for key, (bar_canvas, BAR_W, BAR_H, _color) in self._stat_bars.items():
+            if key in targets and bar_canvas.winfo_exists():
+                items = bar_canvas.find_withtag('bar')
+                if items:
+                    coords = bar_canvas.coords(items[0])
+                    current[key] = coords[2] / BAR_W * 100 if coords else 0.0
+                else:
+                    current[key] = 0.0
+
+        def _step(frame):
+            if not (self.win and self.win.winfo_exists()):
+                return
+            t = frame / steps          # 0.0 → 1.0，线性插值
+            for key, target in targets.items():
+                if key not in current:
+                    continue
+                bar_canvas, BAR_W, BAR_H, color = self._stat_bars[key]
+                if not bar_canvas.winfo_exists():
+                    continue
+                val = current[key] + (target - current[key]) * t
+                fill_w = max(4, int(BAR_W * val / 100))
+                bar_canvas.delete('bar')
+                bar_canvas.create_rectangle(0, 0, fill_w, BAR_H,
+                    fill=color, outline='', tags='bar')
+            if frame < steps:
+                self.win.after(interval_ms, lambda: _step(frame + 1))
+            else:
+                # 动画结束后用真实值刷新文字标签和 emoji
                 self._sync_pet_ui()
-        for attr in ('_pet_emoji_label', '_chat_topbar_emoji'):
-            w = getattr(self, attr, None)
-            if w and w.winfo_exists():
-                w.configure(text=flash_em)
-        if self._home_emoji and self._home_emoji.winfo_exists():
-            self._home_emoji.itemconfig(self._home_emoji_id, text=flash_em)
-        base = self.pet.settings.get('pet_emoji', '🐱')
-        if base == '🐱':
-            self.pet.set_emoji(flash_em)
-        if self.win and self.win.winfo_exists():
-            self.win.after(duration_ms, _restore)
+
+        _step(0)
 
     def _feed(self):
         hunger = self.stats.hunger
@@ -1865,8 +1888,7 @@ class MainPanel:
         else:
             bucket = 'full'
         self.stats.feed()
-        self._sync_pet_ui()
-        self._flash_emoji('😋', 800)
+        self._animate_stats_to({'hunger': self.stats.hunger, 'energy': self.stats.energy})
         self._log_pet(random.choice(FEED_LINES[bucket]))
         self.pet.trigger_bounce()
 
@@ -1879,8 +1901,7 @@ class MainPanel:
         else:
             bucket = 'normal'
         self.stats.play()
-        self._sync_pet_ui()
-        self._flash_emoji('😹', 800)
+        self._animate_stats_to({'mood': self.stats.mood, 'hunger': self.stats.hunger, 'energy': self.stats.energy})
         self._log_pet(random.choice(PLAY_LINES[bucket]))
         self.pet.trigger_bounce()
 
@@ -1893,8 +1914,7 @@ class MainPanel:
         else:
             bucket = 'normal'
         self.stats.rest()
-        self._sync_pet_ui()
-        self._flash_emoji('😴', 1000)
+        self._animate_stats_to({'energy': self.stats.energy})
         self._log_pet(random.choice(REST_LINES[bucket]))
 
     def _pet(self):
@@ -1906,8 +1926,7 @@ class MainPanel:
         else:
             bucket = 'bored'
         self.stats.pet()
-        self._sync_pet_ui()
-        self._flash_emoji('😻', 800)
+        self._animate_stats_to({'mood': self.stats.mood, 'hunger': self.stats.hunger})
         self._log_pet(random.choice(PET_LINES[bucket]))
         self.pet.trigger_bounce()
 
