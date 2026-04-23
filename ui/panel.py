@@ -13,7 +13,7 @@ from config import THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE, CLAUDE_
 from data.settings import load_json, save_json, load_settings, save_settings
 from utils.objc import load_objc, get_all_ns_windows, nsstring_to_py, set_collection_behavior, find_ns_window_by_title
 from data.storage import StorageRepository
-from data.pet import PetStats, FEED_LINES, PLAY_LINES, REST_LINES
+from data.pet import PetStats, FEED_LINES, PLAY_LINES, REST_LINES, PET_LINES
 from services.news import get_news, parse_news, send_notification
 from services.ai import translate_titles_with_claude
 import services.notes as notes_service
@@ -26,23 +26,34 @@ class MainPanel:
     NAV_W = 80
     _NEWS_COL_MIN_W = 280
 
-    GREETINGS = [
-        ('今天还开心吗？', '不管怎样，我在这里陪着你 🐱'),
-        ('嘿，你回来啦！', '我一直在等你呢 ✨'),
-        ('今天吃了什么好吃的？', '记得好好吃饭，不然我要担心了 🍜'),
-        ('工作顺利吗？', '休息一下，摸摸我也许会好一点 😸'),
-        ('今天天气怎么样？', '不管晴雨，有我陪着就够了 🌤'),
-        ('有没有让你开心的事？', '分享给我听听吧 🎉'),
-        ('最近睡得好吗？', '睡眠很重要哦，我晚上都在守护你 🌙'),
-        ('今天有没有喝够水？', '记得补充水分，身体是最重要的 💧'),
-        ('压力大吗？', '深呼吸，一切都会好起来的 🌿'),
-        ('有没有做让自己骄傲的事？', '你已经很棒了，继续加油！⭐'),
-        ('今天学到什么新东西了吗？', '每天进步一点点就很好了 📚'),
-        ('有没有想念的人？', '记得联系一下他们，别让感情生疏了 💌'),
-        ('最近有什么小确幸？', '生活里的小美好值得被记录 🌸'),
-        ('今天有没有笑一笑？', '笑一个嘛，你笑起来很好看的 😄'),
-        ('有没有什么烦恼？', '说出来也许会轻松一些，我在听 👂'),
-    ]
+    GREETINGS = {
+        'happy': [
+            ('今天也是元气满满的一天！', '有我陪着你，什么都能搞定 😸✨'),
+            ('嘿！你来了，我好开心！', '今天有什么有趣的事要分享吗 🎉'),
+            ('好久不见，想死你了！', '快来陪我聊天嘛 😻'),
+            ('今天天气怎么样？', '不管晴雨，有我在就够啦 🌤'),
+            ('有没有让你开心的事？', '快说快说，我也想跟着高兴 🎊'),
+        ],
+        'neutral': [
+            ('今天还开心吗？', '不管怎样，我在这里陪着你 🐱'),
+            ('嘿，你回来啦！', '我一直在等你呢 ✨'),
+            ('今天吃了什么好吃的？', '记得好好吃饭，不然我要担心了 🍜'),
+            ('工作顺利吗？', '休息一下，摸摸我也许会好一点 😸'),
+            ('最近睡得好吗？', '睡眠很重要哦，我晚上都在守护你 🌙'),
+            ('今天有没有喝够水？', '记得补充水分，身体是最重要的 💧'),
+            ('有没有做让自己骄傲的事？', '你已经很棒了，继续加油！⭐'),
+            ('今天学到什么新东西了吗？', '每天进步一点点就很好了 📚'),
+            ('最近有什么小确幸？', '生活里的小美好值得被记录 🌸'),
+            ('今天有没有笑一笑？', '笑一个嘛，你笑起来很好看的 😄'),
+        ],
+        'bored': [
+            ('……你来了啊。', '没什么精神，但还是想陪着你 😔'),
+            ('今天有点累了，', '不过有你在好一点了 😐'),
+            ('有没有什么烦恼？', '说出来也许会轻松一些，我在听 👂'),
+            ('压力大吗？', '深呼吸……一切都会好起来的 🌿'),
+            ('今天……感觉怎么样？', '我也不太好，我们互相陪伴吧 😿'),
+        ],
+    }
 
     def __init__(self, pet):
         self.pet = pet
@@ -70,6 +81,19 @@ class MainPanel:
         self._weather_selected = None      # str | None — currently displayed city
         self._weather_loaded = False       # lazy-load flag (mirrors _news_loaded)
         self._weather_fetching = set()     # set[str] — cities currently being fetched
+
+    # ── 心情问候语 ───────────────────────────────────
+
+    def _mood_greeting(self):
+        """根据当前心情选择问候语 tier。"""
+        mood = self.stats.mood
+        if mood >= 70:
+            tier = 'happy'
+        elif mood >= 40:
+            tier = 'neutral'
+        else:
+            tier = 'bored'
+        return random.choice(self.GREETINGS[tier])
 
     # ── macOS 窗口层级修复 ────────────────────────────
 
@@ -389,7 +413,7 @@ class MainPanel:
         center = tk.Frame(self._welcome_frame, bg=th['BG_CONTENT'])
         center.place(relx=0.5, rely=0.42, anchor='center')
 
-        q, sub = random.choice(self.GREETINGS)
+        q, sub = self._mood_greeting()
         self._welcome_greeting = (q, sub)
 
         _em_size = 90
@@ -632,7 +656,7 @@ class MainPanel:
         self._current_session_id = None
         self._chat_started = False
 
-        q, sub = random.choice(self.GREETINGS)
+        q, sub = self._mood_greeting()
         self._welcome_greeting = (q, sub)
         self._home_question.configure(text=q)
         self._home_sub.configure(text=sub)
@@ -1684,8 +1708,8 @@ class MainPanel:
         btn_frame = tk.Frame(left, bg=th['BG_CONTENT'])
         btn_frame.pack(pady=16)
         for text, action in [('🐟 喂食', self._feed),
-                              ('🎾 逗猫', self._play),
-                              ('💤 休息', self._sleep)]:
+                              ('🎾 玩耍', self._play),
+                              ('🤲 抚摸', self._pet)]:
             b = tk.Label(btn_frame, text=text, bg=th['BG_CARD'], fg=th['FG_MAIN'],
                          font=('PingFang SC', 12), cursor='hand2',
                          padx=12, pady=8,
@@ -1871,6 +1895,20 @@ class MainPanel:
         self._sync_pet_ui()
         self._flash_emoji('😴', 1000)
         self._log_pet(random.choice(REST_LINES[bucket]))
+
+    def _pet(self):
+        mood = self.stats.mood
+        if mood >= 70:
+            bucket = 'happy'
+        elif mood >= 40:
+            bucket = 'normal'
+        else:
+            bucket = 'bored'
+        self.stats.pet()
+        self._sync_pet_ui()
+        self._flash_emoji('😻', 800)
+        self._log_pet(random.choice(PET_LINES[bucket]))
+        self.pet.trigger_bounce()
 
     # ══════════════════════════════════════════════════
     #  Tab: 便签
