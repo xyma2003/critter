@@ -2084,34 +2084,51 @@ class MainPanel:
         cards_per_row = 4
 
         def _make_card(parent, note, col, row_i):
-            card = tk.Frame(parent, bg=th['BG_CARD'],
-                            highlightbackground=th['BORDER'], highlightthickness=1,
+            is_diary = note.get('kind') == 'diary'
+            card_bg = th['BG_SEL'] if is_diary else th['BG_CARD']
+            border_color = th['FG_ACCENT'] if is_diary else th['BORDER']
+            border_thickness = 2 if is_diary else 1
+
+            card = tk.Frame(parent, bg=card_bg,
+                            highlightbackground=border_color,
+                            highlightthickness=border_thickness,
                             cursor='hand2', width=CARD_W, height=120)
             card.grid(row=row_i, column=col, padx=6, pady=6, sticky='nsew')
             card.pack_propagate(False)
 
-            title = (note['content'][:20].replace('\n', ' ') + '…') if len(note['content']) > 20 else note['content'].replace('\n', ' ')
-            tk.Label(card, text=title or '（空便签）',
-                     bg=th['BG_CARD'], fg=th['FG_MAIN'],
-                     font=('PingFang SC', 11), wraplength=CARD_W - 16,
-                     justify=tk.LEFT, anchor='nw').place(x=8, y=8, width=CARD_W-16, height=64)
+            if is_diary:
+                tk.Label(card, text='📖 宠物日记', bg=card_bg, fg=th['FG_ACCENT'],
+                         font=('PingFang SC', 9)).place(x=8, y=4)
+                title_y = 22
+                date_display = note.get('date', '')
+            else:
+                title_y = 8
+                date_display = time.strftime('%m/%d %H:%M', time.localtime(note.get('updated', 0)))
 
-            ts = time.strftime('%m/%d %H:%M', time.localtime(note.get('updated', 0)))
-            tk.Label(card, text=ts, bg=th['BG_CARD'], fg=th['FG_MUTED'],
+            title = (note['content'][:20].replace('\n', ' ') + '…') if len(note['content']) > 20 else note['content'].replace('\n', ' ')
+            tk.Label(card, text=title or ('（空日记）' if is_diary else '（空便签）'),
+                     bg=card_bg, fg=th['FG_MAIN'],
+                     font=('PingFang SC', 11), wraplength=CARD_W - 16,
+                     justify=tk.LEFT, anchor='nw').place(x=8, y=title_y, width=CARD_W-16, height=64)
+
+            tk.Label(card, text=date_display, bg=card_bg, fg=th['FG_MUTED'],
                      font=('PingFang SC', 9)).place(x=8, y=94)
 
-            del_btn = tk.Label(card, text='×', bg=th['BG_CARD'], fg=th['FG_MUTED'],
+            del_btn = tk.Label(card, text='×', bg=card_bg, fg=th['FG_MUTED'],
                                font=('PingFang SC', 14, 'bold'), cursor='hand2')
             del_btn.place(x=CARD_W-20, y=2)
 
             def _open(e, nid=note['id']):
-                self._notes_open_editor(nid)
+                if is_diary:
+                    self._notes_open_readonly(nid)
+                else:
+                    self._notes_open_editor(nid)
             def _delete(e, nid=note['id']):
                 self._notes_delete(nid)
             def _enter(e):
-                card.configure(highlightbackground=th['FG_ACCENT'])
+                card.configure(highlightbackground=th['FG_ACCENT'] if not is_diary else th['FG_GREEN'])
             def _leave(e):
-                card.configure(highlightbackground=th['BORDER'])
+                card.configure(highlightbackground=border_color)
 
             for w in (card,):
                 w.bind('<Button-1>', _open)
@@ -2182,6 +2199,34 @@ class MainPanel:
         self._notes_text.insert('1.0', content)
         self._notes_text.pack(fill=tk.BOTH, expand=True)
         self._notes_text.focus_set()
+
+    def _notes_open_readonly(self, note_id):
+        """日记卡片点击后展开只读全文。"""
+        self._notes_mode = 'edit'   # 复用 edit 布局的 back 按钮
+        th = THEMES[self._theme_mode]
+        notes = notes_service.load_all()
+
+        if self._notes_list_frame:
+            self._notes_list_frame.pack_forget()
+
+        self._notes_current_id = note_id
+        content = ''
+        date_str = ''
+        for n in notes:
+            if n['id'] == note_id:
+                content = n['content']
+                date_str = n.get('date', '')
+                break
+
+        self._notes_title_label.configure(text=f'📖 {date_str} 日记')
+        self._notes_back_btn.pack(side=tk.LEFT, pady=4)
+        self._notes_save_btn.pack_forget()
+
+        self._notes_text.configure(state=tk.NORMAL)
+        self._notes_text.delete('1.0', tk.END)
+        self._notes_text.insert('1.0', content)
+        self._notes_text.configure(state=tk.DISABLED)   # 只读
+        self._notes_text.pack(fill=tk.BOTH, expand=True)
 
     def _save_current_note(self):
         content = self._notes_text.get('1.0', tk.END).rstrip('\n')
