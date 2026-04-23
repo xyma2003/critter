@@ -792,6 +792,8 @@ class MainPanel:
         _dots = ['·', '··', '···']
         _dot_idx = [0]
         def _tick():
+            if not (self.win and self.win.winfo_exists()):
+                return
             if loading_lbl.winfo_exists():
                 _dot_idx[0] = (_dot_idx[0] + 1) % 3
                 loading_lbl.configure(text=_dots[_dot_idx[0]])
@@ -1504,7 +1506,6 @@ class MainPanel:
         return _handler
 
     def _render_news(self, sections, status, cols=None):
-        import hashlib
         th = THEMES[self._theme_mode]
         self._news_status.configure(text=status)
         self._news_sections_cache = sections
@@ -1515,13 +1516,6 @@ class MainPanel:
         if cols is None:
             w = self._news_canvas.winfo_width()
             cols = max(1, w // self._NEWS_COL_MIN_W) if w > 1 else 2
-
-        SOURCE_ICONS = {
-            'Google Trends': '🔍',
-            '百度热点': '🔥',
-            '微博热搜': '💬',
-        }
-        RANK_COLORS = ['#ef5350', '#ff7043', '#ffa726']
 
         bm_ids = {x['id'] for x in self._storage.list_items('bookmarks')}
         rl_ids = {x['id'] for x in self._storage.list_items('read_later')}
@@ -1534,126 +1528,120 @@ class MainPanel:
         for c in range(cols):
             grid.columnconfigure(c, weight=1)
 
-        def _make_item_id(item):
-            """Stable ID: hash of title + source."""
-            return hashlib.md5(
-                (item.get('title', '') + item.get('source', '')).encode()
-            ).hexdigest()[:12]
-
         for idx, sec in enumerate(sections):
-            col = idx % cols
-            row_idx = idx // cols
-
             col_frame = tk.Frame(grid, bg=th['BG_CONTENT'])
-            col_frame.grid(row=row_idx, column=col, sticky='nsew', padx=5, pady=6)
+            col_frame.grid(row=idx // cols, column=idx % cols, sticky='nsew', padx=5, pady=6)
+            self._render_news_section(col_frame, sec, th, bm_ids, rl_ids,
+                                      canvas_w, cols, _toggle_bm, _toggle_rl)
 
-            # 来源标题行
-            header = tk.Frame(col_frame, bg=th['BG_CONTENT'])
-            header.pack(fill=tk.X, pady=(0, 6))
+    def _render_news_section(self, col_frame, sec, th, bm_ids, rl_ids,
+                              canvas_w, cols, _toggle_bm, _toggle_rl):
+        SOURCE_ICONS = {'Google Trends': '🔍', '百度热点': '🔥', '微博热搜': '💬'}
 
-            icon = SOURCE_ICONS.get(sec['source'], '📰')
-            tk.Label(header, text=icon,
-                     bg=th['BG_CONTENT'], font=('Apple Color Emoji', 13)).pack(side=tk.LEFT)
-            tk.Label(header, text=f"  {sec['source']}",
-                     bg=th['BG_CONTENT'], fg=th['FG_MAIN'],
-                     font=('PingFang SC', 12, 'bold')).pack(side=tk.LEFT)
-            tk.Label(header, text=f"Top {len(sec['items'])}",
-                     bg=th['BG_CONTENT'], fg=th['FG_MUTED'],
-                     font=('PingFang SC', 9)).pack(side=tk.RIGHT, padx=2)
+        header = tk.Frame(col_frame, bg=th['BG_CONTENT'])
+        header.pack(fill=tk.X, pady=(0, 6))
+        icon = SOURCE_ICONS.get(sec['source'], '📰')
+        tk.Label(header, text=icon,
+                 bg=th['BG_CONTENT'], font=('Apple Color Emoji', 13)).pack(side=tk.LEFT)
+        tk.Label(header, text=f"  {sec['source']}",
+                 bg=th['BG_CONTENT'], fg=th['FG_MAIN'],
+                 font=('PingFang SC', 12, 'bold')).pack(side=tk.LEFT)
+        tk.Label(header, text=f"Top {len(sec['items'])}",
+                 bg=th['BG_CONTENT'], fg=th['FG_MUTED'],
+                 font=('PingFang SC', 9)).pack(side=tk.RIGHT, padx=2)
 
-            # 卡片（圆角边框）
-            card = tk.Frame(col_frame, bg=th['BG_CARD'],
-                            highlightbackground=th['BORDER'], highlightthickness=1)
-            card.pack(fill=tk.X)
+        card = tk.Frame(col_frame, bg=th['BG_CARD'],
+                        highlightbackground=th['BORDER'], highlightthickness=1)
+        card.pack(fill=tk.X)
 
-            for i, item in enumerate(sec['items']):
-                row = tk.Frame(card, bg=th['BG_CARD'], cursor='hand2')
-                row.pack(fill=tk.X)
+        for i, item in enumerate(sec['items']):
+            self._render_news_item(card, item, i, sec, th, bm_ids, rl_ids,
+                                   canvas_w, cols, _toggle_bm, _toggle_rl)
+            if i < len(sec['items']) - 1:
+                tk.Frame(card, bg=th['DIVIDER'], height=1).pack(fill=tk.X, padx=10)
 
-                # 序号：圆形色块效果（用 Canvas 画）
-                rank_color = RANK_COLORS[i] if i < 3 else th['FG_MUTED']
-                num_canvas = tk.Canvas(row, width=22, height=22,
-                                       bg=th['BG_CARD'], highlightthickness=0)
-                num_canvas.pack(side=tk.LEFT, padx=(10, 0), pady=8)
-                if i < 3:
-                    num_canvas.create_oval(1, 1, 21, 21, fill=rank_color, outline=rank_color)
-                    num_canvas.create_text(11, 11, text=str(i+1),
-                                           fill='white', font=('PingFang SC', 9, 'bold'))
-                else:
-                    num_canvas.create_text(11, 11, text=str(i+1),
-                                           fill=rank_color, font=('PingFang SC', 10))
+    def _render_news_item(self, card, item, i, sec, th, bm_ids, rl_ids,
+                          canvas_w, cols, _toggle_bm, _toggle_rl):
+        import hashlib
+        RANK_COLORS = ['#ef5350', '#ff7043', '#ffa726']
 
-                col_w = max(120, (canvas_w - 28) // cols - 120)
-                title_lbl = tk.Label(row, text=item['title'],
-                                     bg=th['BG_CARD'], fg=th['FG_MAIN'],
-                                     font=('PingFang SC', 11),
-                                     wraplength=col_w, justify=tk.LEFT,
-                                     anchor='w', padx=8, pady=7)
-                title_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        row = tk.Frame(card, bg=th['BG_CARD'], cursor='hand2')
+        row.pack(fill=tk.X)
 
-                # ── 收藏 / 稍后再看 按钮 ──
-                item_id = _make_item_id(item)
-                saved_item = {
-                    'id': item_id,
-                    'title': item.get('title', ''),
-                    'link': item.get('link', ''),
-                    'source': sec.get('source', ''),
-                    'saved_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
-                }
+        rank_color = RANK_COLORS[i] if i < 3 else th['FG_MUTED']
+        num_canvas = tk.Canvas(row, width=22, height=22,
+                               bg=th['BG_CARD'], highlightthickness=0)
+        num_canvas.pack(side=tk.LEFT, padx=(10, 0), pady=8)
+        if i < 3:
+            num_canvas.create_oval(1, 1, 21, 21, fill=rank_color, outline=rank_color)
+            num_canvas.create_text(11, 11, text=str(i+1),
+                                   fill='white', font=('PingFang SC', 9, 'bold'))
+        else:
+            num_canvas.create_text(11, 11, text=str(i+1),
+                                   fill=rank_color, font=('PingFang SC', 10))
 
-                # Check current state (already bookmarked or read-later?)
-                bm_icon = '📌' if item_id in bm_ids else '🔖'
-                rl_icon = '✅' if item_id in rl_ids else '⏰'
+        col_w = max(120, (canvas_w - 28) // cols - 120)
+        title_lbl = tk.Label(row, text=item['title'],
+                             bg=th['BG_CARD'], fg=th['FG_MAIN'],
+                             font=('PingFang SC', 11),
+                             wraplength=col_w, justify=tk.LEFT,
+                             anchor='w', padx=8, pady=7)
+        title_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-                bm_btn = tk.Label(row, text=bm_icon, bg=th['BG_CARD'],
-                                  font=('Apple Color Emoji', 11), cursor='hand2',
-                                  padx=4, pady=8)
-                bm_btn.pack(side=tk.RIGHT, padx=(0, 2))
+        item_id = hashlib.md5(
+            (item.get('title', '') + item.get('source', '')).encode()
+        ).hexdigest()[:12]
+        saved_item = {
+            'id': item_id,
+            'title': item.get('title', ''),
+            'link': item.get('link', ''),
+            'source': sec.get('source', ''),
+            'saved_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
+        }
 
-                rl_btn = tk.Label(row, text=rl_icon, bg=th['BG_CARD'],
-                                  font=('Apple Color Emoji', 11), cursor='hand2',
-                                  padx=4, pady=8)
-                rl_btn.pack(side=tk.RIGHT, padx=(0, 0))
+        bm_btn = tk.Label(row, text='📌' if item_id in bm_ids else '🔖',
+                          bg=th['BG_CARD'], font=('Apple Color Emoji', 11),
+                          cursor='hand2', padx=4, pady=8)
+        bm_btn.pack(side=tk.RIGHT, padx=(0, 2))
+        rl_btn = tk.Label(row, text='✅' if item_id in rl_ids else '⏰',
+                          bg=th['BG_CARD'], font=('Apple Color Emoji', 11),
+                          cursor='hand2', padx=4, pady=8)
+        rl_btn.pack(side=tk.RIGHT)
 
-                bm_btn.bind('<Button-1>',
-                    lambda e, h=_toggle_bm, btn=bm_btn, sid=saved_item, iid=item_id:
-                        h(e, btn=btn, sid=sid, iid=iid))
-                rl_btn.bind('<Button-1>',
-                    lambda e, h=_toggle_rl, btn=rl_btn, sid=saved_item, iid=item_id:
-                        h(e, btn=btn, sid=sid, iid=iid))
+        bm_btn.bind('<Button-1>',
+            lambda e, h=_toggle_bm, btn=bm_btn, sid=saved_item, iid=item_id:
+                h(e, btn=btn, sid=sid, iid=iid))
+        rl_btn.bind('<Button-1>',
+            lambda e, h=_toggle_rl, btn=rl_btn, sid=saved_item, iid=item_id:
+                h(e, btn=btn, sid=sid, iid=iid))
+        bm_btn.bind('<Enter>', lambda e, b=bm_btn: b.configure(bg=th['BG_HOVER']))
+        bm_btn.bind('<Leave>', lambda e, b=bm_btn: b.configure(bg=th['BG_CARD']))
+        rl_btn.bind('<Enter>', lambda e, b=rl_btn: b.configure(bg=th['BG_HOVER']))
+        rl_btn.bind('<Leave>', lambda e, b=rl_btn: b.configure(bg=th['BG_CARD']))
 
-                # Hover backgrounds for action buttons
-                bm_btn.bind('<Enter>', lambda e, b=bm_btn: b.configure(bg=th['BG_HOVER']))
-                bm_btn.bind('<Leave>', lambda e, b=bm_btn: b.configure(bg=th['BG_CARD']))
-                rl_btn.bind('<Enter>', lambda e, b=rl_btn: b.configure(bg=th['BG_HOVER']))
-                rl_btn.bind('<Leave>', lambda e, b=rl_btn: b.configure(bg=th['BG_CARD']))
-
-                if i < len(sec['items']) - 1:
-                    tk.Frame(card, bg=th['DIVIDER'], height=1).pack(fill=tk.X, padx=10)
-
-                def _enter(e, r=row, n=num_canvas, l=title_lbl, rc=rank_color, ii=i, bb=bm_btn, rb=rl_btn):
-                    r.configure(bg=th['BG_HOVER'])
-                    n.configure(bg=th['BG_HOVER'])
-                    l.configure(bg=th['BG_HOVER'], fg=th['FG_ACCENT'])
-                    bb.configure(bg=th['BG_HOVER'])
-                    rb.configure(bg=th['BG_HOVER'])
-                    if ii >= 3:
-                        n.itemconfig(1, fill=th['FG_ACCENT'])
-                def _leave(e, r=row, n=num_canvas, l=title_lbl, rc=rank_color, ii=i, bb=bm_btn, rb=rl_btn):
-                    r.configure(bg=th['BG_CARD'])
-                    n.configure(bg=th['BG_CARD'])
-                    l.configure(bg=th['BG_CARD'], fg=th['FG_MAIN'])
-                    bb.configure(bg=th['BG_CARD'])
-                    rb.configure(bg=th['BG_CARD'])
-                    if ii >= 3:
-                        n.itemconfig(1, fill=rc)
-                def _click(e, link=item.get('link')):
-                    if link:
-                        subprocess.Popen(['open', link])
-                for w in (row, num_canvas, title_lbl):
-                    w.bind('<Enter>', _enter)
-                    w.bind('<Leave>', _leave)
-                    w.bind('<Button-1>', _click)
+        def _enter(e, r=row, n=num_canvas, l=title_lbl, rc=rank_color, ii=i, bb=bm_btn, rb=rl_btn):
+            r.configure(bg=th['BG_HOVER'])
+            n.configure(bg=th['BG_HOVER'])
+            l.configure(bg=th['BG_HOVER'], fg=th['FG_ACCENT'])
+            bb.configure(bg=th['BG_HOVER'])
+            rb.configure(bg=th['BG_HOVER'])
+            if ii >= 3:
+                n.itemconfig(1, fill=th['FG_ACCENT'])
+        def _leave(e, r=row, n=num_canvas, l=title_lbl, rc=rank_color, ii=i, bb=bm_btn, rb=rl_btn):
+            r.configure(bg=th['BG_CARD'])
+            n.configure(bg=th['BG_CARD'])
+            l.configure(bg=th['BG_CARD'], fg=th['FG_MAIN'])
+            bb.configure(bg=th['BG_CARD'])
+            rb.configure(bg=th['BG_CARD'])
+            if ii >= 3:
+                n.itemconfig(1, fill=rc)
+        def _click(e, link=item.get('link')):
+            if link:
+                subprocess.Popen(['open', link])
+        for w in (row, num_canvas, title_lbl):
+            w.bind('<Enter>', _enter)
+            w.bind('<Leave>', _leave)
+            w.bind('<Button-1>', _click)
 
     def _push_news(self):
         def run():
