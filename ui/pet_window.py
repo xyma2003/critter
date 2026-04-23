@@ -37,6 +37,7 @@ class DesktopPet:
         self.canvas = tk.Canvas(self.root, width=self.w, height=self.h,
                                 bg='systemTransparent', highlightthickness=0)
         self.canvas.pack()
+        self._avatar_photo = self._load_avatar()
 
         # 小猫动画状态
         self._drag_x = self._drag_y = 0
@@ -152,19 +153,46 @@ class DesktopPet:
         else:
             offset_y = int(-4 * math.sin(2 * math.pi * t) * (self.w / 96))
 
-        self._draw_emoji(offset_y)
+        self._draw_pet(offset_y)
         self._anim_frame += 1
         self.root.after(self.ANIM_INTERVAL, self._animate)
 
-    def _draw_emoji(self, offset_y):
+    def _load_avatar(self):
+        """加载 pet_avatar.png -> 圆形裁剪 ImageTk.PhotoImage，失败返回 None。"""
+        from config import PET_AVATAR_FILE
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+        except ImportError:
+            return None
+        if not os.path.exists(PET_AVATAR_FILE):
+            return None
+        size = self.w
+        size4 = size * 4
+        src = Image.open(PET_AVATAR_FILE).convert('RGBA')
+        src = src.resize((size4, size4), Image.LANCZOS)
+        mask = Image.new('L', (size4, size4), 0)
+        ImageDraw.Draw(mask).ellipse((0, 0, size4, size4), fill=255)
+        src.putalpha(mask)
+        result = src.resize((size, size), Image.LANCZOS)
+        return ImageTk.PhotoImage(result)
+
+    def reload_avatar(self):
+        """由 MainPanel 在保存/重置头像后调用。"""
+        self._avatar_photo = self._load_avatar()
+
+    def _draw_pet(self, offset_y):
         self.canvas.delete('all')
-        emoji = self.settings.get('pet_emoji', '🐱')
-        font_size = max(20, int(self.w * 0.6))
         cx = self.w // 2
         cy = self.h // 2 + offset_y
-        self.canvas.create_text(cx, cy, text=emoji,
-                                font=('Apple Color Emoji', font_size),
-                                anchor='center')
+        if self._avatar_photo:
+            self.canvas.create_image(cx, cy, image=self._avatar_photo, anchor='center')
+            self.canvas._avatar_ref = self._avatar_photo   # 防止 GC
+        else:
+            emoji = self.settings.get('pet_emoji', '🐱')
+            font_size = max(20, int(self.w * 0.6))
+            self.canvas.create_text(cx, cy, text=emoji,
+                                    font=('Apple Color Emoji', font_size),
+                                    anchor='center')
 
     def _on_press(self, e):
         self._drag_x, self._drag_y = e.x, e.y
