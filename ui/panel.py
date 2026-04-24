@@ -2154,13 +2154,6 @@ class MainPanel:
         self._notes_save_btn.bind('<Enter>', lambda e: self._notes_save_btn.configure(fg=th['FG_ACCENT']))
         self._notes_save_btn.bind('<Leave>', lambda e: self._notes_save_btn.configure(fg=th['FG_MAIN']))
 
-        self._notes_preview_btn = tk.Label(toolbar, text='👁 预览', bg=th['BG_TOOLBAR'],
-                                fg=th['FG_MAIN'], font=('PingFang SC', 11),
-                                cursor='hand2', padx=10)
-        self._notes_preview_btn.bind('<Button-1>', lambda e: self._notes_toggle_preview())
-        self._notes_preview_btn.bind('<Enter>', lambda e: self._notes_preview_btn.configure(fg=th['FG_ACCENT']))
-        self._notes_preview_btn.bind('<Leave>', lambda e: self._notes_preview_btn.configure(fg=th['FG_MAIN']))
-
         self._notes_back_btn = tk.Label(toolbar, text='← 返回', bg=th['BG_TOOLBAR'],
                             fg=th['FG_MAIN'], font=('PingFang SC', 11),
                             cursor='hand2', padx=10)
@@ -2184,7 +2177,8 @@ class MainPanel:
         self._notes_current_id = None
         self._notes_list_frame = None
         self._notes_mode = 'list'  # 'list' | 'edit'
-        self._notes_previewing = False
+        self._notes_edit_pane = None
+        self._notes_preview = None
 
         self._check_and_generate_diary()
 
@@ -2312,9 +2306,11 @@ class MainPanel:
         self._notes_mode = 'list'
         th = THEMES[self._theme_mode]
         self._notes_text.pack_forget()
+        if getattr(self, '_notes_edit_pane', None):
+            self._notes_edit_pane.destroy()
+            self._notes_edit_pane = None
+            self._notes_preview = None
         self._notes_save_btn.pack_forget()
-        self._notes_preview_btn.pack_forget()
-        self._notes_previewing = False
         self._notes_back_btn.pack_forget()
         self._notes_title_label.configure(text='便签')
         self._notes_status.configure(text='')
@@ -2432,6 +2428,15 @@ class MainPanel:
         if self._notes_list_frame:
             self._notes_list_frame.pack_forget()
 
+        # 若旧的只读视图正在显示，隐藏 self._notes_text
+        self._notes_text.pack_forget()
+
+        # 清除并重建分栏容器（保证主题/内容刷新）
+        if getattr(self, '_notes_edit_pane', None):
+            self._notes_edit_pane.destroy()
+            self._notes_edit_pane = None
+            self._notes_preview = None
+
         self._notes_current_id = note_id
         content = ''
         if note_id is not None:
@@ -2447,16 +2452,96 @@ class MainPanel:
                 self._notes_back_btn.pack(side=tk.LEFT, pady=4)
 
         self._notes_save_btn.pack(side=tk.RIGHT, pady=4)
-        self._notes_preview_btn.pack(side=tk.RIGHT, pady=4)
-        self._notes_previewing = False
-        self._notes_preview_btn.configure(text='👁 预览')
         self._notes_status.configure(text='')
 
-        self._notes_text.configure(state=tk.NORMAL)
+        # ── 分栏容器 ──
+        pane = tk.Frame(self._notes_body, bg=th['BG_CONTENT'])
+        pane.pack(fill=tk.BOTH, expand=True)
+        self._notes_edit_pane = pane
+
+        # ── 左侧 ──
+        left = tk.Frame(pane, bg=th['BG_CONTENT'])
+        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # 格式工具栏（高 36px）
+        fmt_bar = tk.Frame(left, bg=th['BG_TOOLBAR'], height=36)
+        fmt_bar.pack(fill=tk.X)
+        fmt_bar.pack_propagate(False)
+
+        fmt_buttons = [
+            ('B',  '**',   '**',   '**粗体**'),
+            ('I',  '*',    '*',    '*斜体*'),
+            ('U',  '<u>',  '</u>', '<u>下划线</u>'),
+            ('H1', '# ',   '',     '# 标题1'),
+            ('H2', '## ',  '',     '## 标题2'),
+            ('•',  '- ',   '',     '- 列表项'),
+            ('1.', '1. ',  '',     '1. 列表项'),
+        ]
+
+        for (label, prefix, suffix, placeholder) in fmt_buttons:
+            btn = tk.Label(fmt_bar, text=label, bg=th['BG_TOOLBAR'],
+                           fg=th['FG_MAIN'], font=('PingFang SC', 11),
+                           cursor='hand2', padx=8, pady=4)
+            btn.pack(side=tk.LEFT, padx=2)
+            btn.bind('<Enter>', lambda e, b=btn: b.configure(fg=th['FG_ACCENT']))
+            btn.bind('<Leave>', lambda e, b=btn: b.configure(fg=th['FG_MAIN']))
+            btn.bind('<Button-1>',
+                     lambda e, p=prefix, s=suffix, ph=placeholder:
+                         self._notes_toolbar_wrap(p, s, ph))
+
+        # 编辑器（复用已有的 self._notes_text）
+        self._notes_text.configure(
+            state=tk.NORMAL,
+            bg=th['BG_CARD'], fg=th['FG_MAIN'],
+            insertbackground=th['FG_ACCENT'],
+            selectbackground=th['BG_SEL'],
+        )
         self._notes_text.delete('1.0', tk.END)
         self._notes_text.insert('1.0', content)
-        self._notes_text.pack(fill=tk.BOTH, expand=True)
+        self._notes_text.pack(in_=left, fill=tk.BOTH, expand=True)
+
+        # ── 垂直分隔线 ──
+        tk.Frame(pane, bg=th['DIVIDER'], width=1).pack(side=tk.LEFT, fill=tk.Y)
+
+        # ── 右侧预览 ──
+        right = tk.Frame(pane, bg=th['BG_CARD'])
+        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        preview = tk.Text(right, bg=th['BG_CARD'], fg=th['FG_MAIN'],
+                          font=('PingFang SC', 13),
+                          relief=tk.FLAT, padx=16, pady=12,
+                          wrap=tk.WORD, borderwidth=0,
+                          state=tk.DISABLED)
+        preview.pack(fill=tk.BOTH, expand=True)
+        self._notes_preview = preview
+
+        # 初次渲染预览
+        self._render_markdown_in_widget(self._notes_preview, content)
+
+        # 按键实时刷新预览
+        def _refresh_preview(e=None):
+            txt = self._notes_text.get('1.0', tk.END).rstrip('\n')
+            self._render_markdown_in_widget(self._notes_preview, txt)
+
+        self._notes_text.bind('<KeyRelease>', _refresh_preview)
         self._notes_text.focus_set()
+
+    def _notes_toolbar_wrap(self, prefix: str, suffix: str, placeholder: str):
+        """工具栏按钮点击：有选中则包裹，无选中则插入占位符。"""
+        ed = self._notes_text
+        try:
+            sel_start = ed.index(tk.SEL_FIRST)
+            sel_end   = ed.index(tk.SEL_LAST)
+            selected  = ed.get(sel_start, sel_end)
+            ed.delete(sel_start, sel_end)
+            ed.insert(sel_start, prefix + selected + suffix)
+        except tk.TclError:
+            # 无选中：在光标处插入占位符
+            cursor = ed.index(tk.INSERT)
+            ed.insert(cursor, placeholder)
+        ed.focus_set()
+        # 触发预览刷新
+        ed.event_generate('<KeyRelease>')
 
     def _notes_open_readonly(self, note_id):
         """日记卡片点击后展开只读全文。"""
@@ -2466,6 +2551,11 @@ class MainPanel:
 
         if self._notes_list_frame:
             self._notes_list_frame.pack_forget()
+
+        if getattr(self, '_notes_edit_pane', None):
+            self._notes_edit_pane.destroy()
+            self._notes_edit_pane = None
+            self._notes_preview = None
 
         self._notes_current_id = note_id
         content = ''
@@ -2479,28 +2569,9 @@ class MainPanel:
         self._notes_title_label.configure(text=f'📖 {date_str} 日记')
         self._notes_back_btn.pack(side=tk.LEFT, pady=4)
         self._notes_save_btn.pack_forget()
-        self._notes_preview_btn.pack_forget()
 
         self._notes_text.pack(fill=tk.BOTH, expand=True)
         self._render_markdown_in_widget(self._notes_text, content)
-
-    def _notes_toggle_preview(self):
-        """编辑/预览切换（仅在 edit 模式下有效）。"""
-        if self._notes_mode != 'edit':
-            return
-        th = THEMES[self._theme_mode]
-        self._notes_previewing = not getattr(self, '_notes_previewing', False)
-        if self._notes_previewing:
-            # 进入预览：读取当前文本并渲染
-            content = self._notes_text.get('1.0', tk.END).rstrip('\n')
-            self._render_markdown_in_widget(self._notes_text, content)
-            self._notes_preview_btn.configure(text='✏️ 编辑')
-            self._notes_save_btn.pack_forget()   # 预览时隐藏保存
-        else:
-            # 退出预览：恢复可编辑（重新打开当前便签编辑器）
-            self._notes_previewing = False
-            self._notes_preview_btn.configure(text='👁 预览')
-            self._notes_open_editor(self._notes_current_id)
 
     def _save_current_note(self):
         content = self._notes_text.get('1.0', tk.END).rstrip('\n')
