@@ -92,6 +92,7 @@ None yet.
 | 260423-fma | 情绪系统 MOOD-01~07：mood 独立持久化、衰减、抚摸按钮、分层问候语 | 2026-04-23 | 14b997a | [260423-fma-phase-3-mood-system-implement-mood-01-to](.planning/quick/260423-fma-phase-3-mood-system-implement-mood-01-to/) |
 | 260423-gqd | Phase 4 自定义宠物头像：Pillow 圆形裁剪、悬浮窗/Pet Tab 同步、Settings Tab 上传重置按钮 | 2026-04-23 | 21b6346 | [260423-gqd-phase-4-ui-pillow-emoji-tab](.planning/quick/260423-gqd-phase-4-ui-pillow-emoji-tab/) |
 | 260423-tol | 宠物日记：互动计数持久化、Claude CLI 日记生成服务、便签 Tab 日记卡片特殊样式 | 2026-04-23 | 718d526 | [260423-tol-claude-tab](.planning/quick/260423-tol-claude-tab/) |
+| 260424-eg2 | 便签 Markdown 渲染：_strip_markdown + _render_markdown_in_widget + 预览/编辑切换按钮 | 2026-04-24 | 8db328f | [260424-eg2-markdown-markdown-markdown](.planning/quick/260424-eg2-markdown-markdown-markdown/) |
 
 ### Blockers/Concerns
 
@@ -101,6 +102,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-23T13:38:00Z
-Stopped at: 260423-tol Tasks 1-3 complete, awaiting human-verify checkpoint (Task 4)
+Last session: 2026-04-24T02:29:17Z
+Stopped at: 260424-eg2 Tasks 1-2 complete, awaiting human-verify checkpoint (Task 3)
 Resume file: None
