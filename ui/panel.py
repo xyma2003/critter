@@ -2457,6 +2457,46 @@ class MainPanel:
         # City label
         tk.Label(self._weather_main_frame, text=city, bg=th['BG_CONTENT'],
                  fg=th['FG_MUTED'], font=('PingFang SC', 10)).pack(anchor='w', padx=20)
+
+        # ── 穿搭建议卡片 ──
+        outfit_card = tk.Frame(self._weather_main_frame, bg=th['BG_CARD'],
+                               highlightthickness=1, highlightbackground=th['BORDER'])
+        outfit_card.pack(fill=tk.X, padx=20, pady=(8, 0))
+
+        outfit_lbl = tk.Label(outfit_card, text='⏳  生成中…', bg=th['BG_CARD'],
+                              fg=th['FG_MUTED'], font=('PingFang SC', 12),
+                              anchor='w', wraplength=560, justify='left')
+        outfit_lbl.pack(fill=tk.X, padx=14, pady=10)
+
+        # loading 旋转动画
+        _FRAMES = ('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+        _fidx = [0]
+        _spinning = [True]
+
+        def _spin():
+            if not _spinning[0]:
+                return
+            try:
+                outfit_lbl.configure(text=f'{_FRAMES[_fidx[0]]}  生成中…')
+            except tk.TclError:
+                return
+            _fidx[0] = (_fidx[0] + 1) % len(_FRAMES)
+            outfit_lbl.after(100, _spin)
+
+        _spin()
+
+        def _on_advice(text, lbl=outfit_lbl):
+            _spinning[0] = False
+            try:
+                lbl.configure(
+                    text=text if text else '今天天气不错，出门记得看看穿搭哦～',
+                    fg=th['FG_MAIN']
+                )
+            except tk.TclError:
+                pass
+
+        self._fetch_outfit_advice_async(city, data['temp_C'], data['desc_zh'], _on_advice)
+
         self._render_forecast(data)
 
     def _render_forecast(self, data):
