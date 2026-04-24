@@ -270,6 +270,7 @@ class MainPanel:
     # ── Tab 切换 ──────────────────────────────────────
 
     def _switch_tab(self, key):
+        prev_tab = getattr(self, '_active_tab', None)
         self._active_tab = key
         self._tab_frames[key].tkraise()
         th = THEMES[self._theme_mode]
@@ -311,6 +312,10 @@ class MainPanel:
                 # 每次切换到天气 tab 强制拉取最新数据
                 self._weather_status.configure(text='正在更新...')
                 self._load_weather_async(self._weather_selected, force=True)
+
+        # 从宠物 Tab 切走：后台重新生成当天日记
+        if prev_tab == 'pet' and key != 'pet':
+            self._regen_diary_on_leave_pet()
 
     # ── 主题切换 ──────────────────────────────────────
 
@@ -2211,6 +2216,63 @@ class MainPanel:
         if getattr(self, '_notes_mode', 'list') == 'list':
             self._notes_show_list()
 
+    def _regen_diary_on_leave_pet(self):
+        """离开宠物 Tab 时，后台重新生成当天日记（替换旧记录）。"""
+        today = self._today_str()
+        counts = self._get_diary_counts_today()
+        stats_snap = {
+            'mood': round(self.stats.mood, 1),
+            'hunger': round(self.stats.hunger, 1),
+            'energy': round(self.stats.energy, 1),
+            'mood_label': self.stats.mood_label(),
+        }
+        pet_name = self.pet.settings.get('pet_name', '小猫')
+        pet_personality = self.pet.settings.get('pet_personality', '温柔')
+        pet_catchphrase = self.pet.settings.get('pet_catchphrase', '喵~')
+
+        # 标记 loading，刷新日记 Tab 状态栏
+        self._diary_loading = True
+        if self.win and self.win.winfo_exists():
+            try:
+                self._diary_status.configure(text='正在更新…')
+            except Exception:
+                pass
+
+        def _gen():
+            try:
+                import services.diary as diary_service
+                text = diary_service.generate_diary(
+                    stats_snap, counts, pet_name, pet_personality, pet_catchphrase, today
+                )
+                if text:
+                    # 删除今天的旧日记（如有），然后创建新的
+                    all_notes = notes_service.load_all()
+                    remaining = [
+                        n for n in all_notes
+                        if not (n.get('kind') == 'diary' and n.get('date') == today)
+                    ]
+                    notes_service.save_all(remaining)
+                    notes_service.create_diary(text, today)
+            except Exception:
+                pass
+            finally:
+                self._diary_loading = False
+                if self.win and self.win.winfo_exists():
+                    self.win.after(0, self._diary_refresh_if_active)
+
+        threading.Thread(target=_gen, daemon=True).start()
+
+    def _diary_refresh_if_active(self):
+        """日记生成完毕后，若当前在日记 Tab 则刷新列表。"""
+        if getattr(self, '_active_tab', None) == 'diary':
+            self._diary_show_list()
+        else:
+            # 更新状态标签（可能日记 Tab 在后台）
+            try:
+                self._diary_status.configure(text='')
+            except Exception:
+                pass
+
     def _notes_show_list(self):
         self._notes_mode = 'list'
         th = THEMES[self._theme_mode]
@@ -2226,7 +2288,7 @@ class MainPanel:
         if self._notes_list_frame:
             self._notes_list_frame.destroy()
 
-        notes = notes_service.load_all()
+        notes = [n for n in notes_service.load_all() if n.get('kind') != 'diary']
 
         outer = tk.Frame(self._notes_body, bg=th['BG_CONTENT'])
         outer.pack(fill=tk.BOTH, expand=True)
