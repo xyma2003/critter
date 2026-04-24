@@ -88,6 +88,7 @@ class MainPanel:
         self._weather_loaded = False       # lazy-load flag (mirrors _news_loaded)
         self._weather_fetching = set()     # set[str] — cities currently being fetched
         self._outfit_cache: dict = {}      # key: f"{city}:{temp_C}" -> str（建议文字）
+        self._diary_loading = False        # 正在后台重新生成日记
 
     # ── 心情问候语 ───────────────────────────────────
 
@@ -206,6 +207,7 @@ class MainPanel:
             ('pet',      '🐾', '宠物'),
             ('notes',    '📝', '便签'),
             ('weather',  '🌤', '天气'),
+            ('diary',    '📖', '日记'),
             ('settings', '⚙️', '设置'),
         ]
 
@@ -217,6 +219,7 @@ class MainPanel:
         self._tab_frames['pet']      = self._build_pet_tab(self._content_host)
         self._tab_frames['notes']    = self._build_notes_tab(self._content_host)
         self._tab_frames['weather']  = self._build_weather_tab(self._content_host)
+        self._tab_frames['diary']    = self._build_diary_tab(self._content_host)
         self._tab_frames['settings'] = self._build_settings_tab(self._content_host)
 
         for frame in self._tab_frames.values():
@@ -1953,6 +1956,149 @@ class MainPanel:
         today = self._today_str()
         counts = self._load_diary_counts()
         return counts.get(today, {'feed': 0, 'play': 0, 'rest': 0, 'pet': 0})
+
+    # ══════════════════════════════════════════════════
+    #  Tab: 日记
+    # ══════════════════════════════════════════════════
+
+    def _build_diary_tab(self, parent):
+        """Tab: 日记 — 按日期倒序展示所有 kind==diary 记录。"""
+        th = THEMES[self._theme_mode]
+        frame = tk.Frame(parent, bg=th['BG_CONTENT'])
+
+        toolbar = tk.Frame(frame, bg=th['BG_TOOLBAR'], height=44)
+        toolbar.pack(fill=tk.X)
+        toolbar.pack_propagate(False)
+        tk.Label(toolbar, text='宠物日记',
+                 bg=th['BG_TOOLBAR'], fg=th['FG_MAIN'],
+                 font=('PingFang SC', 13, 'bold')).pack(side=tk.LEFT, padx=16)
+
+        self._diary_status = tk.Label(toolbar, text='', bg=th['BG_TOOLBAR'],
+                                      fg=th['FG_MUTED'], font=('PingFang SC', 10))
+        self._diary_status.pack(side=tk.LEFT, padx=4)
+
+        tk.Frame(frame, bg=th['DIVIDER'], height=1).pack(fill=tk.X)
+
+        self._diary_list_host = tk.Frame(frame, bg=th['BG_CONTENT'])
+        self._diary_list_host.pack(fill=tk.BOTH, expand=True)
+
+        self._diary_readonly_text = tk.Text(
+            self._diary_list_host, bg=th['BG_CARD'], fg=th['FG_MAIN'],
+            font=('PingFang SC', 13), relief=tk.FLAT, padx=20, pady=16,
+            wrap=tk.WORD, state=tk.DISABLED,
+            insertbackground=th['FG_ACCENT'],
+            selectbackground=th['BG_SEL'],
+            borderwidth=0
+        )
+        self._diary_back_btn = tk.Label(toolbar, text='← 返回', bg=th['BG_TOOLBAR'],
+                                        fg=th['FG_MAIN'], font=('PingFang SC', 11),
+                                        cursor='hand2', padx=10)
+        self._diary_back_btn.bind('<Button-1>', lambda e: self._diary_show_list())
+        self._diary_back_btn.bind('<Enter>', lambda e: self._diary_back_btn.configure(fg=th['FG_ACCENT']))
+        self._diary_back_btn.bind('<Leave>', lambda e: self._diary_back_btn.configure(fg=th['FG_MAIN']))
+
+        self._diary_list_frame = None
+        self._diary_show_list()
+        return frame
+
+    def _diary_show_list(self):
+        """日记 Tab 的列表视图（按日期倒序）。"""
+        th = THEMES[self._theme_mode]
+        self._diary_readonly_text.pack_forget()
+        self._diary_back_btn.pack_forget()
+        self._diary_status.configure(text='正在更新…' if getattr(self, '_diary_loading', False) else '')
+
+        if hasattr(self, '_diary_list_frame') and self._diary_list_frame:
+            self._diary_list_frame.destroy()
+
+        all_notes = notes_service.load_all()
+        diaries = sorted(
+            [n for n in all_notes if n.get('kind') == 'diary'],
+            key=lambda n: n.get('date', ''),
+            reverse=True
+        )
+
+        outer = tk.Frame(self._diary_list_host, bg=th['BG_CONTENT'])
+        outer.pack(fill=tk.BOTH, expand=True)
+        self._diary_list_frame = outer
+
+        _, inner = self._make_scrollable_frame(outer, th['BG_CONTENT'])
+
+        if not diaries:
+            tk.Label(inner, text='还没有日记哦，去和宠物互动后再来看看~',
+                     bg=th['BG_CONTENT'], fg=th['FG_MUTED'],
+                     font=('PingFang SC', 12)).pack(pady=40)
+            return
+
+        for diary in diaries:
+            card = tk.Frame(inner, bg=th['BG_CARD'],
+                            highlightbackground=th['BORDER'],
+                            highlightthickness=1,
+                            cursor='hand2')
+            card.pack(fill=tk.X, padx=16, pady=6)
+
+            date_str = diary.get('date', '')
+            try:
+                import datetime as _datetime
+                d = _datetime.date.fromisoformat(date_str)
+                date_label = f"{d.year}年{d.month}月{d.day}日"
+            except Exception:
+                date_label = date_str
+
+            header = tk.Frame(card, bg=th['BG_CARD'])
+            header.pack(fill=tk.X, padx=12, pady=(10, 4))
+            tk.Label(header, text='📖 ' + date_label,
+                     bg=th['BG_CARD'], fg=th['FG_ACCENT'],
+                     font=('PingFang SC', 11, 'bold')).pack(side=tk.LEFT)
+
+            _plain = self._strip_markdown(diary['content']).replace('\n', ' ')
+            preview = (_plain[:60] + '…') if len(_plain) > 60 else _plain
+            tk.Label(card, text=preview,
+                     bg=th['BG_CARD'], fg=th['FG_MAIN'],
+                     font=('PingFang SC', 11),
+                     wraplength=880, justify=tk.LEFT, anchor='w').pack(
+                         fill=tk.X, padx=12, pady=(0, 10))
+
+            def _open(e, nid=diary['id'], ds=date_str):
+                self._diary_open_readonly(nid, ds)
+            def _enter(e, c=card):
+                c.configure(highlightbackground=th['FG_ACCENT'])
+            def _leave(e, c=card):
+                c.configure(highlightbackground=th['BORDER'])
+
+            card.bind('<Button-1>', _open)
+            for child in card.winfo_children():
+                child.bind('<Button-1>', _open)
+                for grandchild in child.winfo_children():
+                    grandchild.bind('<Button-1>', _open)
+            card.bind('<Enter>', _enter)
+            card.bind('<Leave>', _leave)
+
+    def _diary_open_readonly(self, note_id, date_str):
+        """展开单条日记的只读视图。"""
+        th = THEMES[self._theme_mode]
+        all_notes = notes_service.load_all()
+        content = ''
+        for n in all_notes:
+            if n['id'] == note_id:
+                content = n['content']
+                break
+
+        if hasattr(self, '_diary_list_frame') and self._diary_list_frame:
+            self._diary_list_frame.pack_forget()
+
+        try:
+            import datetime as _datetime
+            d = _datetime.date.fromisoformat(date_str)
+            date_label = f"{d.year}年{d.month}月{d.day}日"
+        except Exception:
+            date_label = date_str
+
+        self._diary_status.configure(text=date_label)
+        self._diary_back_btn.pack(side=tk.LEFT, pady=4)
+
+        self._diary_readonly_text.pack(fill=tk.BOTH, expand=True)
+        self._render_markdown_in_widget(self._diary_readonly_text, content)
 
     # ══════════════════════════════════════════════════
     #  Tab: 便签
