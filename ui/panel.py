@@ -10,7 +10,7 @@ import hashlib
 from datetime import datetime as _dt
 import subprocess
 import random
-from config import THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE, CLAUDE_CLI, WEATHER_FILE, DIARY_COUNTS_FILE
+from config import THEMES, NOTE_FILE, USER_PROFILE_FILE, BOOKMARKS_FILE, CLAUDE_CLI, WEATHER_FILE, DIARY_COUNTS_FILE, PET_LOG_FILE
 from data.settings import load_json, save_json, load_settings, save_settings
 from utils.objc import load_objc, get_all_ns_windows, nsstring_to_py, set_collection_behavior, find_ns_window_by_title
 from data.storage import StorageRepository
@@ -91,6 +91,7 @@ class MainPanel:
         self._outfit_cache: dict = {}      # key: f"{city}:{temp_C}" -> str（建议文字）
         self._diary_loading = False        # 正在后台重新生成日记
         self._diary_generating = False     # 互斥锁：防止并发生成
+        self._pet_log_history: list = []   # 内存缓存，避免每次 _log_pet 都读文件
 
     # ── 心情问候语 ───────────────────────────────────
 
@@ -1779,7 +1780,7 @@ class MainPanel:
                                 state=tk.DISABLED, wrap=tk.WORD,
                                 highlightbackground=th['BORDER'], highlightthickness=1)
         self._pet_log.pack(fill=tk.BOTH, expand=True)
-        self._log_pet('宠物醒来了，开始新的一天 ✨')
+        self._restore_pet_log()
         return frame
 
     def _sync_pet_ui(self):
@@ -1840,12 +1841,32 @@ class MainPanel:
         if self.win and self.win.winfo_exists():
             self.win.after(PetStats.DECAY_INTERVAL_MS, _decay_tick)
 
-    def _log_pet(self, msg):
-        ts = time.strftime('%H:%M')
+    def _restore_pet_log(self):
+        """启动时从文件恢复历史互动记录，末尾加分割线后写入醒来消息。"""
+        self._pet_log_history = load_json(PET_LOG_FILE, [])
         self._pet_log.configure(state=tk.NORMAL)
-        self._pet_log.insert('end', f'[{ts}] {msg}\n')
+        if self._pet_log_history:
+            for entry in self._pet_log_history:
+                self._pet_log.insert('end', entry + '\n')
+            ts = time.strftime('%m/%d %H:%M')
+            self._pet_log.insert('end', f'── {ts} 重新醒来 ──────────────\n')
+        wake_line = f'[{time.strftime("%H:%M")}] 宠物醒来了，开始新的一天 ✨'
+        self._pet_log.insert('end', wake_line + '\n')
         self._pet_log.see('end')
         self._pet_log.configure(state=tk.DISABLED)
+        self._pet_log_history.append(wake_line)
+        save_json(PET_LOG_FILE, self._pet_log_history[-200:])
+
+    def _log_pet(self, msg):
+        ts = time.strftime('%H:%M')
+        line = f'[{ts}] {msg}'
+        self._pet_log.configure(state=tk.NORMAL)
+        self._pet_log.insert('end', line + '\n')
+        self._pet_log.see('end')
+        self._pet_log.configure(state=tk.DISABLED)
+        # 内存缓存直接 append，无需重新读文件
+        self._pet_log_history.append(line)
+        save_json(PET_LOG_FILE, self._pet_log_history[-200:])
 
     def _animate_stats_to(self, targets, steps=20, interval_ms=30):
         """将进度条从当前显示值平滑过渡到 targets（dict: key->目标值）。
