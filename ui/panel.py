@@ -1980,6 +1980,13 @@ class MainPanel:
         self._notes_save_btn.bind('<Enter>', lambda e: self._notes_save_btn.configure(fg=th['FG_ACCENT']))
         self._notes_save_btn.bind('<Leave>', lambda e: self._notes_save_btn.configure(fg=th['FG_MAIN']))
 
+        self._notes_preview_btn = tk.Label(toolbar, text='👁 预览', bg=th['BG_TOOLBAR'],
+                                fg=th['FG_MAIN'], font=('PingFang SC', 11),
+                                cursor='hand2', padx=10)
+        self._notes_preview_btn.bind('<Button-1>', lambda e: self._notes_toggle_preview())
+        self._notes_preview_btn.bind('<Enter>', lambda e: self._notes_preview_btn.configure(fg=th['FG_ACCENT']))
+        self._notes_preview_btn.bind('<Leave>', lambda e: self._notes_preview_btn.configure(fg=th['FG_MAIN']))
+
         self._notes_back_btn = tk.Label(toolbar, text='← 返回', bg=th['BG_TOOLBAR'],
                             fg=th['FG_MAIN'], font=('PingFang SC', 11),
                             cursor='hand2', padx=10)
@@ -2003,6 +2010,7 @@ class MainPanel:
         self._notes_current_id = None
         self._notes_list_frame = None
         self._notes_mode = 'list'  # 'list' | 'edit'
+        self._notes_previewing = False
 
         self._check_and_generate_diary()
 
@@ -2061,6 +2069,8 @@ class MainPanel:
         th = THEMES[self._theme_mode]
         self._notes_text.pack_forget()
         self._notes_save_btn.pack_forget()
+        self._notes_preview_btn.pack_forget()
+        self._notes_previewing = False
         self._notes_back_btn.pack_forget()
         self._notes_title_label.configure(text='便签')
         self._notes_status.configure(text='')
@@ -2105,7 +2115,8 @@ class MainPanel:
                 title_y = 8
                 date_display = time.strftime('%m/%d %H:%M', time.localtime(note.get('updated', 0)))
 
-            title = (note['content'][:20].replace('\n', ' ') + '…') if len(note['content']) > 20 else note['content'].replace('\n', ' ')
+            _plain = self._strip_markdown(note['content']).replace('\n', ' ')
+            title = (_plain[:20] + '…') if len(_plain) > 20 else _plain
             tk.Label(card, text=title or ('（空日记）' if is_diary else '（空便签）'),
                      bg=card_bg, fg=th['FG_MAIN'],
                      font=('PingFang SC', 11), wraplength=CARD_W - 16,
@@ -2192,6 +2203,9 @@ class MainPanel:
                 self._notes_back_btn.pack(side=tk.LEFT, pady=4)
 
         self._notes_save_btn.pack(side=tk.RIGHT, pady=4)
+        self._notes_preview_btn.pack(side=tk.RIGHT, pady=4)
+        self._notes_previewing = False
+        self._notes_preview_btn.configure(text='👁 预览')
         self._notes_status.configure(text='')
 
         self._notes_text.configure(state=tk.NORMAL)
@@ -2221,12 +2235,28 @@ class MainPanel:
         self._notes_title_label.configure(text=f'📖 {date_str} 日记')
         self._notes_back_btn.pack(side=tk.LEFT, pady=4)
         self._notes_save_btn.pack_forget()
+        self._notes_preview_btn.pack_forget()
 
-        self._notes_text.configure(state=tk.NORMAL)
-        self._notes_text.delete('1.0', tk.END)
-        self._notes_text.insert('1.0', content)
-        self._notes_text.configure(state=tk.DISABLED)   # 只读
         self._notes_text.pack(fill=tk.BOTH, expand=True)
+        self._render_markdown_in_widget(self._notes_text, content)
+
+    def _notes_toggle_preview(self):
+        """编辑/预览切换（仅在 edit 模式下有效）。"""
+        if self._notes_mode != 'edit':
+            return
+        th = THEMES[self._theme_mode]
+        self._notes_previewing = not getattr(self, '_notes_previewing', False)
+        if self._notes_previewing:
+            # 进入预览：读取当前文本并渲染
+            content = self._notes_text.get('1.0', tk.END).rstrip('\n')
+            self._render_markdown_in_widget(self._notes_text, content)
+            self._notes_preview_btn.configure(text='✏️ 编辑')
+            self._notes_save_btn.pack_forget()   # 预览时隐藏保存
+        else:
+            # 退出预览：恢复可编辑（重新打开当前便签编辑器）
+            self._notes_previewing = False
+            self._notes_preview_btn.configure(text='👁 预览')
+            self._notes_open_editor(self._notes_current_id)
 
     def _save_current_note(self):
         content = self._notes_text.get('1.0', tk.END).rstrip('\n')
