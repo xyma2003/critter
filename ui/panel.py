@@ -87,6 +87,7 @@ class MainPanel:
         self._weather_selected = None      # str | None — currently displayed city
         self._weather_loaded = False       # lazy-load flag (mirrors _news_loaded)
         self._weather_fetching = set()     # set[str] — cities currently being fetched
+        self._outfit_cache: dict = {}      # key: f"{city}:{temp_C}" -> str（建议文字）
 
     # ── 心情问候语 ───────────────────────────────────
 
@@ -2495,6 +2496,39 @@ class MainPanel:
                 self.win.after(0, lambda: self._on_weather_loaded(city, data, err))
         threading.Thread(target=run, daemon=True).start()
 
+    def _fetch_outfit_advice_async(self, city: str, temp_C: str, desc_zh: str, on_done):
+        """在后台线程调用 Claude CLI 生成穿搭建议，完成后通过 on_done(text) 回调到主线程。
+        on_done 在主线程安全，直接操作 tkinter widget。
+        """
+        cache_key = f"{city}:{temp_C}"
+        if cache_key in self._outfit_cache:
+            self.win.after(0, lambda: on_done(self._outfit_cache[cache_key]))
+            return
+
+        def _run():
+            prompt = (
+                f"你是一只可爱的猫咪宠物，用第一人称、宠物口吻，"
+                f"根据当前天气（{temp_C}°C，{desc_zh}）给主人一句简短的穿搭建议。"
+                f"只输出一句话，20字以内，不要换行，结尾可加一个可爱的颜文字或emoji。"
+            )
+            try:
+                proc = subprocess.Popen(
+                    [CLAUDE_CLI, '--print', '--output-format', 'json'],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, text=True
+                )
+                out, _ = proc.communicate(input=prompt, timeout=30)
+                data = json.loads(out.strip())
+                text = data.get('result', '').strip()
+            except Exception:
+                text = ''
+            if text:
+                self._outfit_cache[cache_key] = text
+            if self.win and self.win.winfo_exists():
+                self.win.after(0, lambda: on_done(text))
+
+        threading.Thread(target=_run, daemon=True).start()
+
     def _on_weather_loaded(self, city, data, err):
         if err:
             if city == self._weather_selected:
@@ -2623,6 +2657,46 @@ class MainPanel:
         # City label
         tk.Label(self._weather_main_frame, text=city, bg=th['BG_CONTENT'],
                  fg=th['FG_MUTED'], font=('PingFang SC', 10)).pack(anchor='w', padx=20)
+
+        # ── 穿搭建议卡片 ──
+        outfit_card = tk.Frame(self._weather_main_frame, bg=th['BG_CARD'],
+                               highlightthickness=1, highlightbackground=th['BORDER'])
+        outfit_card.pack(fill=tk.X, padx=20, pady=(8, 0))
+
+        outfit_lbl = tk.Label(outfit_card, text='⏳  生成中…', bg=th['BG_CARD'],
+                              fg=th['FG_MUTED'], font=('PingFang SC', 12),
+                              anchor='w', wraplength=560, justify='left')
+        outfit_lbl.pack(fill=tk.X, padx=14, pady=10)
+
+        # loading 旋转动画
+        _FRAMES = ('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+        _fidx = [0]
+        _spinning = [True]
+
+        def _spin():
+            if not _spinning[0]:
+                return
+            try:
+                outfit_lbl.configure(text=f'{_FRAMES[_fidx[0]]}  生成中…')
+            except tk.TclError:
+                return
+            _fidx[0] = (_fidx[0] + 1) % len(_FRAMES)
+            outfit_lbl.after(100, _spin)
+
+        _spin()
+
+        def _on_advice(text, lbl=outfit_lbl):
+            _spinning[0] = False
+            try:
+                lbl.configure(
+                    text=text if text else '今天天气不错，出门记得看看穿搭哦～',
+                    fg=th['FG_MAIN']
+                )
+            except tk.TclError:
+                pass
+
+        self._fetch_outfit_advice_async(city, data['temp_C'], data['desc_zh'], _on_advice)
+
         self._render_forecast(data)
 
     def _render_forecast(self, data):
