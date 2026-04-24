@@ -2248,6 +2248,56 @@ class MainPanel:
         else:
             self._notes_open_editor(None)
 
+    def _strip_markdown(self, text: str) -> str:
+        """去除常见 Markdown 符号，返回纯文本（用于卡片摘要）。"""
+        import re
+        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+        text = re.sub(r'\*(.+?)\*', r'\1', text)
+        text = re.sub(r'__(.+?)__', r'\1', text)
+        text = re.sub(r'_(.+?)_', r'\1', text)
+        text = re.sub(r'^#{1,3}\s+', '', text, flags=re.MULTILINE)
+        text = re.sub(r'^[-*]\s+', '', text, flags=re.MULTILINE)
+        return text
+
+    def _render_markdown_in_widget(self, widget, text: str):
+        """将 Markdown 文本渲染到 tk.Text widget（只读预览）。"""
+        import re
+        th = THEMES[self._theme_mode]
+        widget.tag_configure('h1', font=('PingFang SC', 18, 'bold'),
+                             foreground=th['FG_ACCENT'])
+        widget.tag_configure('h2', font=('PingFang SC', 15, 'bold'),
+                             foreground=th['FG_ACCENT'])
+        widget.tag_configure('h3', font=('PingFang SC', 13, 'bold'),
+                             foreground=th['FG_ACCENT'])
+        widget.tag_configure('bold', font=('PingFang SC', 13, 'bold'))
+        widget.tag_configure('italic', font=('PingFang SC', 13, 'italic'))
+        widget.tag_configure('bullet', lmargin1=24, lmargin2=32)
+
+        widget.configure(state=tk.NORMAL)
+        widget.delete('1.0', tk.END)
+
+        for line in text.splitlines():
+            if line.startswith('### '):
+                widget.insert(tk.END, line[4:] + '\n', 'h3')
+            elif line.startswith('## '):
+                widget.insert(tk.END, line[3:] + '\n', 'h2')
+            elif line.startswith('# '):
+                widget.insert(tk.END, line[2:] + '\n', 'h1')
+            elif re.match(r'^[-*] ', line):
+                widget.insert(tk.END, '• ' + line[2:] + '\n', 'bullet')
+            else:
+                parts = re.split(r'(\*\*[^*]+?\*\*|\*[^*]+?\*)', line)
+                for part in parts:
+                    if part.startswith('**') and part.endswith('**'):
+                        widget.insert(tk.END, part[2:-2], 'bold')
+                    elif part.startswith('*') and part.endswith('*'):
+                        widget.insert(tk.END, part[1:-1], 'italic')
+                    else:
+                        widget.insert(tk.END, part)
+                widget.insert(tk.END, '\n')
+
+        widget.configure(state=tk.DISABLED)
+
     # ══════════════════════════════════════════════════
     #  Tab: 天气
     # ══════════════════════════════════════════════════
