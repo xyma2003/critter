@@ -15,23 +15,24 @@ def save_all(notes):
     save_json(NOTE_FILE, {'notes': notes})
 
 
-def create(content):
+def create(content, title=''):
     """新建便签，返回新建的 note dict。"""
     notes = load_all()
     now = int(time.time())
-    note = {'id': now, 'content': content, 'updated': now}
+    note = {'id': now, 'title': title, 'content': content, 'updated': now}
     notes.append(note)
     save_all(notes)
     return note
 
 
-def update(note_id, content):
+def update(note_id, content, title=''):
     """更新便签内容，返回是否成功。"""
     notes = load_all()
     now = int(time.time())
     for n in notes:
         if n['id'] == note_id:
             n['content'] = content
+            n['title'] = title
             n['updated'] = now
             save_all(notes)
             return True

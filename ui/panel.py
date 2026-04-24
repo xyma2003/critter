@@ -846,15 +846,26 @@ class MainPanel:
 
     @staticmethod
     def _make_scrollable_frame(parent, bg):
-        """Create a scrollable canvas area. Returns (canvas, inner_frame)."""
+        """Create a scrollable canvas area. Returns (canvas, inner_frame).
+        Scrollbar only appears when content overflows."""
         canvas = tk.Canvas(parent, bg=bg, highlightthickness=0)
         sb = tk.Scrollbar(parent, orient='vertical', command=canvas.yview)
         canvas.configure(yscrollcommand=sb.set)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        canvas.pack(fill=tk.BOTH, expand=True)
         inner = tk.Frame(canvas, bg=bg)
         win_id = canvas.create_window((0, 0), window=inner, anchor='nw')
-        inner.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+
+        def _on_content_change(e=None):
+            canvas.configure(scrollregion=canvas.bbox('all'))
+            bbox = canvas.bbox('all')
+            needs_scroll = bbox and bbox[3] > canvas.winfo_height()
+            if needs_scroll and not sb.winfo_ismapped():
+                sb.pack(side=tk.RIGHT, fill=tk.Y)
+                canvas.pack_configure(fill=tk.BOTH, expand=True)
+            elif not needs_scroll and sb.winfo_ismapped():
+                sb.pack_forget()
+
+        inner.bind('<Configure>', _on_content_change)
         canvas.bind('<Configure>', lambda e: canvas.itemconfig(win_id, width=e.width))
         return canvas, inner
 
@@ -2166,13 +2177,7 @@ class MainPanel:
         self._notes_body = tk.Frame(frame, bg=th['BG_CONTENT'])
         self._notes_body.pack(fill=tk.BOTH, expand=True)
 
-        self._notes_text = tk.Text(self._notes_body, bg=th['BG_CARD'], fg=th['FG_MAIN'],
-                                   font=('PingFang SC', 13),
-                                   relief=tk.FLAT, padx=20, pady=16,
-                                   wrap=tk.WORD,
-                                   insertbackground=th['FG_ACCENT'],
-                                   selectbackground=th['BG_SEL'],
-                                   borderwidth=0)
+        self._notes_text = None   # 由 _notes_open_editor 按需创建
 
         self._notes_current_id = None
         self._notes_list_frame = None
@@ -2305,11 +2310,11 @@ class MainPanel:
     def _notes_show_list(self):
         self._notes_mode = 'list'
         th = THEMES[self._theme_mode]
-        self._notes_text.pack_forget()
         if getattr(self, '_notes_edit_pane', None):
             self._notes_edit_pane.destroy()
             self._notes_edit_pane = None
             self._notes_preview = None
+            self._notes_text = None
         self._notes_save_btn.pack_forget()
         self._notes_back_btn.pack_forget()
         self._notes_title_label.configure(text='便签')
@@ -2346,28 +2351,38 @@ class MainPanel:
             card.grid(row=row_i, column=col, padx=6, pady=6, sticky='nsew')
             card.pack_propagate(False)
 
+            # 顶部行：日记标签（可选）+ 删除按钮
+            top_row = tk.Frame(card, bg=card_bg)
+            top_row.pack(fill=tk.X, padx=8, pady=(6, 0))
             if is_diary:
-                tk.Label(card, text='📖 宠物日记', bg=card_bg, fg=th['FG_ACCENT'],
-                         font=('PingFang SC', 9)).place(x=8, y=4)
-                title_y = 22
+                tk.Label(top_row, text='📖 宠物日记', bg=card_bg, fg=th['FG_ACCENT'],
+                         font=('PingFang SC', 9)).pack(side=tk.LEFT)
                 date_display = note.get('date', '')
             else:
-                title_y = 8
                 date_display = time.strftime('%m/%d %H:%M', time.localtime(note.get('updated', 0)))
-
-            _plain = self._strip_markdown(note['content']).replace('\n', ' ')
-            title = (_plain[:20] + '…') if len(_plain) > 20 else _plain
-            tk.Label(card, text=title or ('（空日记）' if is_diary else '（空便签）'),
-                     bg=card_bg, fg=th['FG_MAIN'],
-                     font=('PingFang SC', 11), wraplength=CARD_W - 16,
-                     justify=tk.LEFT, anchor='nw').place(x=8, y=title_y, width=CARD_W-16, height=64)
-
-            tk.Label(card, text=date_display, bg=card_bg, fg=th['FG_MUTED'],
-                     font=('PingFang SC', 9)).place(x=8, y=94)
-
-            del_btn = tk.Label(card, text='×', bg=card_bg, fg=th['FG_MUTED'],
+            del_btn = tk.Label(top_row, text='×', bg=card_bg, fg=th['FG_MUTED'],
                                font=('PingFang SC', 12, 'bold'), cursor='hand2')
-            del_btn.place(relx=1.0, rely=0.0, anchor='ne', x=-4, y=4)
+            del_btn.pack(side=tk.RIGHT)
+
+            # 卡片标题：有标题用标题，否则用内容预览
+            _note_title = note.get('title', '').strip()
+            if _note_title:
+                card_text = _note_title
+            else:
+                _plain = self._strip_markdown(note['content']).replace('\n', ' ')
+                card_text = (_plain[:40] + '…') if len(_plain) > 40 else _plain
+            title_lbl = tk.Label(card, text=card_text or ('（空日记）' if is_diary else '（空便签）'),
+                                 bg=card_bg, fg=th['FG_MAIN'],
+                                 font=('PingFang SC', 11),
+                                 justify=tk.LEFT, anchor='nw')
+            title_lbl.pack(fill=tk.BOTH, expand=True, padx=8, pady=(2, 0))
+            def _update_wrap(e, lbl=title_lbl):
+                lbl.configure(wraplength=max(60, e.width - 16))
+            card.bind('<Configure>', _update_wrap)
+
+            # 底部日期
+            tk.Label(card, text=date_display, bg=card_bg, fg=th['FG_MUTED'],
+                     font=('PingFang SC', 9), anchor='w').pack(fill=tk.X, padx=8, pady=(0, 6))
 
             def _open(e, nid=note['id']):
                 if is_diary:
@@ -2381,19 +2396,29 @@ class MainPanel:
             def _leave(e):
                 card.configure(highlightbackground=border_color)
 
-            for w in (card,):
-                w.bind('<Button-1>', _open)
-                w.bind('<Enter>', _enter)
-                w.bind('<Leave>', _leave)
+            for w in card.winfo_children() + [card]:
+                if w is not del_btn:
+                    w.bind('<Button-1>', _open)
+                    w.bind('<Enter>', _enter)
+                    w.bind('<Leave>', _leave)
+                # top_row 자식(일기 라벨 등)도 바인딩
+                if hasattr(w, 'winfo_children'):
+                    for ww in w.winfo_children():
+                        if ww is not del_btn:
+                            ww.bind('<Button-1>', _open)
+                            ww.bind('<Enter>', _enter)
+                            ww.bind('<Leave>', _leave)
             del_btn.bind('<Button-1>', _delete)
             del_btn.bind('<Enter>', lambda e: del_btn.configure(fg=th['FG_RED']))
             del_btn.bind('<Leave>', lambda e: del_btn.configure(fg=th['FG_MUTED']))
+
+        for c in range(cards_per_row):
+            grid.columnconfigure(c, weight=1)
 
         items = list(notes) + [None]
         for i, item in enumerate(items):
             col = i % cards_per_row
             row_i = i // cards_per_row
-            grid.columnconfigure(col, weight=1)
             if item is None:
                 add_btn = tk.Frame(grid, bg=th['BG_CONTENT'],
                                    highlightbackground=th['BORDER'], highlightthickness=1,
@@ -2428,21 +2453,21 @@ class MainPanel:
         if self._notes_list_frame:
             self._notes_list_frame.pack_forget()
 
-        # 若旧的只读视图正在显示，隐藏 self._notes_text
-        self._notes_text.pack_forget()
-
-        # 清除并重建分栏容器（保证主题/内容刷新）
+        # 清除旧的分栏容器（含旧编辑器和只读视图）
         if getattr(self, '_notes_edit_pane', None):
             self._notes_edit_pane.destroy()
             self._notes_edit_pane = None
             self._notes_preview = None
+            self._notes_text = None
 
         self._notes_current_id = note_id
         content = ''
+        note_title = ''
         if note_id is not None:
             for n in notes:
                 if n['id'] == note_id:
                     content = n['content']
+                    note_title = n.get('title', '')
                     break
             self._notes_title_label.configure(text='编辑便签')
             self._notes_back_btn.pack(side=tk.LEFT, pady=4)
@@ -2454,14 +2479,50 @@ class MainPanel:
         self._notes_save_btn.pack(side=tk.RIGHT, pady=4)
         self._notes_status.configure(text='')
 
-        # ── 分栏容器 ──
+        # ── 外层容器 ──
         pane = tk.Frame(self._notes_body, bg=th['BG_CONTENT'])
         pane.pack(fill=tk.BOTH, expand=True)
         self._notes_edit_pane = pane
 
-        # ── 左侧 ──
-        left = tk.Frame(pane, bg=th['BG_CONTENT'])
-        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # inner 用动态 padx 实现左右10%留白，不用 place 避免内容撑大布局
+        inner = tk.Frame(pane, bg=th['BG_CONTENT'])
+        inner.pack(fill=tk.BOTH, expand=True, padx=80)
+
+        def _update_padx(e, f=inner):
+            pad = max(16, int(e.width * 0.1))
+            f.pack_configure(padx=pad)
+        pane.bind('<Configure>', _update_padx)
+
+        # ── 标题区 ──
+        TITLE_PLACEHOLDER = '标题（选填）'
+        self._notes_title_entry = tk.Entry(inner, bg=th['BG_CONTENT'], fg=th['FG_MUTED'],
+                                           font=('PingFang SC', 16, 'bold'),
+                                           relief=tk.FLAT, bd=0,
+                                           insertbackground=th['FG_ACCENT'],
+                                           highlightthickness=0)
+        if note_title:
+            self._notes_title_entry.insert(0, note_title)
+            self._notes_title_entry.configure(fg=th['FG_MAIN'])
+        else:
+            self._notes_title_entry.insert(0, TITLE_PLACEHOLDER)
+
+        def _title_focus_in(e):
+            if self._notes_title_entry.get() == TITLE_PLACEHOLDER:
+                self._notes_title_entry.delete(0, tk.END)
+                self._notes_title_entry.configure(fg=th['FG_MAIN'])
+        def _title_focus_out(e):
+            if not self._notes_title_entry.get().strip():
+                self._notes_title_entry.delete(0, tk.END)
+                self._notes_title_entry.insert(0, TITLE_PLACEHOLDER)
+                self._notes_title_entry.configure(fg=th['FG_MUTED'])
+        self._notes_title_entry.bind('<FocusIn>', _title_focus_in)
+        self._notes_title_entry.bind('<FocusOut>', _title_focus_out)
+        self._notes_title_entry.pack(fill=tk.X, pady=(16, 0))
+
+        tk.Frame(inner, bg=th['DIVIDER'], height=1).pack(fill=tk.X, pady=(10, 0))
+
+        # ── 左侧内容区（工具栏 + 编辑器） ──
+        left = inner
 
         # 格式工具栏（高 36px）
         fmt_bar = tk.Frame(left, bg=th['BG_TOOLBAR'], height=36)
@@ -2489,42 +2550,54 @@ class MainPanel:
                      lambda e, p=prefix, s=suffix, ph=placeholder:
                          self._notes_toolbar_wrap(p, s, ph))
 
-        # 编辑器（复用已有的 self._notes_text）
-        self._notes_text.configure(
-            state=tk.NORMAL,
-            bg=th['BG_CARD'], fg=th['FG_MAIN'],
-            insertbackground=th['FG_ACCENT'],
-            selectbackground=th['BG_SEL'],
-        )
-        self._notes_text.delete('1.0', tk.END)
-        self._notes_text.insert('1.0', content)
-        self._notes_text.pack(in_=left, fill=tk.BOTH, expand=True)
+        # 编辑器（新建，不复用 _notes_text 避免 pack(in_=) 布局异常）
+        editor = tk.Text(left, bg=th['BG_CARD'], fg=th['FG_MAIN'],
+                         font=('PingFang SC', 13),
+                         relief=tk.FLAT, padx=12, pady=10,
+                         wrap=tk.WORD, undo=True,
+                         insertbackground=th['FG_ACCENT'],
+                         selectbackground=th['BG_SEL'],
+                         highlightthickness=0)
+        editor.pack(fill=tk.BOTH, expand=True)
+        editor.insert('1.0', content)
+        editor.focus_set()
+        self._notes_text = editor
 
-        # ── 垂直分隔线 ──
-        tk.Frame(pane, bg=th['DIVIDER'], width=1).pack(side=tk.LEFT, fill=tk.Y)
+        # ── 右侧预览（按需：检测到 Markdown 语法才显示） ──
+        _MD_PATTERN = re.compile(r'\*\*|__|\*|_|^#{1,3} |^- |^[0-9]+\. |<u>', re.MULTILINE)
 
-        # ── 右侧预览 ──
-        right = tk.Frame(pane, bg=th['BG_CARD'])
-        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        preview_container = [None]   # 用列表持有引用，供闭包修改
 
-        preview = tk.Text(right, bg=th['BG_CARD'], fg=th['FG_MAIN'],
-                          font=('PingFang SC', 13),
-                          relief=tk.FLAT, padx=16, pady=12,
-                          wrap=tk.WORD, borderwidth=0,
-                          state=tk.DISABLED)
-        preview.pack(fill=tk.BOTH, expand=True)
-        self._notes_preview = preview
+        def _show_preview(txt):
+            if preview_container[0] is not None:
+                return
+            div = tk.Frame(pane, bg=th['DIVIDER'], width=1)
+            div.pack(side=tk.LEFT, fill=tk.Y)
+            right = tk.Frame(pane, bg=th['BG_CARD'])
+            right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            preview = tk.Text(right, bg=th['BG_CARD'], fg=th['FG_MAIN'],
+                              font=('PingFang SC', 13),
+                              relief=tk.FLAT, padx=16, pady=12,
+                              wrap=tk.WORD, borderwidth=0,
+                              state=tk.DISABLED)
+            preview.pack(fill=tk.BOTH, expand=True)
+            self._notes_preview = preview
+            preview_container[0] = preview
+            self._render_markdown_in_widget(preview, txt)
 
-        # 初次渲染预览
-        self._render_markdown_in_widget(self._notes_preview, content)
-
-        # 按键实时刷新预览
         def _refresh_preview(e=None):
-            txt = self._notes_text.get('1.0', tk.END).rstrip('\n')
-            self._render_markdown_in_widget(self._notes_preview, txt)
+            txt = editor.get('1.0', tk.END).rstrip('\n')
+            if _MD_PATTERN.search(txt):
+                _show_preview(txt)
+                if preview_container[0]:
+                    self._render_markdown_in_widget(preview_container[0], txt)
 
-        self._notes_text.bind('<KeyRelease>', _refresh_preview)
-        self._notes_text.focus_set()
+        # 初次：若已有内容且含 Markdown，立即显示预览
+        if content and _MD_PATTERN.search(content):
+            _show_preview(content)
+
+        editor.bind('<KeyRelease>', _refresh_preview)
+        editor.focus_set()
 
     def _notes_toolbar_wrap(self, prefix: str, suffix: str, placeholder: str):
         """工具栏按钮点击：有选中则包裹，无选中则插入占位符。"""
@@ -2536,9 +2609,15 @@ class MainPanel:
             ed.delete(sel_start, sel_end)
             ed.insert(sel_start, prefix + selected + suffix)
         except tk.TclError:
-            # 无选中：在光标处插入占位符
+            # 无选中：插入占位符，行首类语法（H1/H2/列表）确保在新行开头
             cursor = ed.index(tk.INSERT)
-            ed.insert(cursor, placeholder)
+            line_start = ed.index(f'{cursor} linestart')
+            line_content = ed.get(line_start, cursor).strip()
+            if line_content and prefix in ('# ', '## ', '- ', '1. '):
+                # 当前行有内容，先换行再插入
+                ed.insert(cursor, '\n' + placeholder)
+            else:
+                ed.insert(cursor, placeholder)
         ed.focus_set()
         # 触发预览刷新
         ed.event_generate('<KeyRelease>')
@@ -2556,6 +2635,7 @@ class MainPanel:
             self._notes_edit_pane.destroy()
             self._notes_edit_pane = None
             self._notes_preview = None
+            self._notes_text = None
 
         self._notes_current_id = note_id
         content = ''
@@ -2570,18 +2650,32 @@ class MainPanel:
         self._notes_back_btn.pack(side=tk.LEFT, pady=4)
         self._notes_save_btn.pack_forget()
 
-        self._notes_text.pack(fill=tk.BOTH, expand=True)
-        self._render_markdown_in_widget(self._notes_text, content)
+        # 只读视图：在 _notes_body 里新建全宽 Text，用 pane 管理生命周期
+        pane = tk.Frame(self._notes_body, bg=th['BG_CONTENT'])
+        pane.pack(fill=tk.BOTH, expand=True)
+        self._notes_edit_pane = pane
+
+        readonly = tk.Text(pane, bg=th['BG_CARD'], fg=th['FG_MAIN'],
+                           font=('PingFang SC', 13),
+                           relief=tk.FLAT, padx=20, pady=16,
+                           wrap=tk.WORD, borderwidth=0,
+                           state=tk.DISABLED)
+        readonly.pack(fill=tk.BOTH, expand=True)
+        self._render_markdown_in_widget(readonly, content)
 
     def _save_current_note(self):
         content = self._notes_text.get('1.0', tk.END).rstrip('\n')
-        if not content.strip():
+        title = getattr(self, '_notes_title_entry', None)
+        title = title.get().strip() if title else ''
+        if title == '标题（选填）':
+            title = ''
+        if not content.strip() and not title:
             self._notes_status.configure(text='内容为空')
             return
         if self._notes_current_id is not None:
-            notes_service.update(self._notes_current_id, content)
+            notes_service.update(self._notes_current_id, content, title)
         else:
-            note = notes_service.create(content)
+            note = notes_service.create(content, title)
             self._notes_current_id = note['id']
         self._notes_status.configure(text=f'已保存 {time.strftime("%H:%M:%S")}')
         self._notes_show_list()
