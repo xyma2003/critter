@@ -19,6 +19,7 @@ from services.news import get_news, parse_news, send_notification
 from services.ai import translate_titles_with_claude
 import services.notes as notes_service
 import services.chat_history as chat_history_service
+import services.diary as diary_service
 from services.weather import fetch_weather, is_cached, last_fetch_time, get_cached_data, code_to_emoji
 
 
@@ -89,6 +90,7 @@ class MainPanel:
         self._weather_fetching = set()     # set[str] — cities currently being fetched
         self._outfit_cache: dict = {}      # key: f"{city}:{temp_C}" -> str（建议文字）
         self._diary_loading = False        # 正在后台重新生成日记
+        self._diary_generating = False     # 互斥锁：防止并发生成
 
     # ── 心情问候语 ───────────────────────────────────
 
@@ -1841,7 +1843,8 @@ class MainPanel:
     def _log_pet(self, msg):
         ts = time.strftime('%H:%M')
         self._pet_log.configure(state=tk.NORMAL)
-        self._pet_log.insert('1.0', f'[{ts}] {msg}\n')
+        self._pet_log.insert('end', f'[{ts}] {msg}\n')
+        self._pet_log.see('end')
         self._pet_log.configure(state=tk.DISABLED)
 
     def _animate_stats_to(self, targets, steps=20, interval_ms=30):
@@ -1945,6 +1948,16 @@ class MainPanel:
         import datetime
         return datetime.date.today().isoformat()   # 'YYYY-MM-DD'
 
+    @staticmethod
+    def _format_diary_date(date_str):
+        """将 'YYYY-MM-DD' 格式化为 'YYYY年M月D日'，解析失败返回原字符串。"""
+        try:
+            import datetime
+            d = datetime.date.fromisoformat(date_str)
+            return f"{d.year}年{d.month}月{d.day}日"
+        except Exception:
+            return date_str
+
     def _load_diary_counts(self):
         return load_json(DIARY_COUNTS_FILE, {})
 
@@ -2043,12 +2056,7 @@ class MainPanel:
             card.pack(fill=tk.X, padx=16, pady=6)
 
             date_str = diary.get('date', '')
-            try:
-                import datetime as _datetime
-                d = _datetime.date.fromisoformat(date_str)
-                date_label = f"{d.year}年{d.month}月{d.day}日"
-            except Exception:
-                date_label = date_str
+            date_label = self._format_diary_date(date_str)
 
             header = tk.Frame(card, bg=th['BG_CARD'])
             header.pack(fill=tk.X, padx=12, pady=(10, 4))
@@ -2092,14 +2100,7 @@ class MainPanel:
         if hasattr(self, '_diary_list_frame') and self._diary_list_frame:
             self._diary_list_frame.pack_forget()
 
-        try:
-            import datetime as _datetime
-            d = _datetime.date.fromisoformat(date_str)
-            date_label = f"{d.year}年{d.month}月{d.day}日"
-        except Exception:
-            date_label = date_str
-
-        self._diary_status.configure(text=date_label)
+        self._diary_status.configure(text=self._format_diary_date(date_str))
         self._diary_back_btn.pack(side=tk.LEFT, pady=4)
 
         self._diary_readonly_text.pack(fill=tk.BOTH, expand=True)
@@ -2175,6 +2176,8 @@ class MainPanel:
 
     def _check_and_generate_diary(self):
         """如果今天还没有日记，后台生成一条。每次打开便签 Tab 时调用。"""
+        if self._diary_generating:
+            return
         today = self._today_str()
         all_notes = notes_service.load_all()
         already_exists = any(
@@ -2183,7 +2186,7 @@ class MainPanel:
         )
         if already_exists:
             return
-        # 后台生成，不阻塞 UI
+        self._diary_generating = True
         counts = self._get_diary_counts_today()
         stats_snap = {
             'mood': round(self.stats.mood, 1),
@@ -2197,17 +2200,17 @@ class MainPanel:
 
         def _gen():
             try:
-                import services.diary as diary_service
                 text = diary_service.generate_diary(
                     stats_snap, counts, pet_name, pet_personality, pet_catchphrase, today
                 )
                 if text:
                     notes_service.create_diary(text, today)
-                    # 如果当前仍在 notes list 模式，刷新列表
                     if self.win and self.win.winfo_exists():
                         self.win.after(0, self._notes_refresh_if_list)
             except Exception:
                 pass
+            finally:
+                self._diary_generating = False
 
         threading.Thread(target=_gen, daemon=True).start()
 
@@ -2218,6 +2221,9 @@ class MainPanel:
 
     def _regen_diary_on_leave_pet(self):
         """离开宠物 Tab 时，后台重新生成当天日记（替换旧记录）。"""
+        if self._diary_generating:
+            return
+        self._diary_generating = True
         today = self._today_str()
         counts = self._get_diary_counts_today()
         stats_snap = {
@@ -2230,7 +2236,6 @@ class MainPanel:
         pet_personality = self.pet.settings.get('pet_personality', '温柔')
         pet_catchphrase = self.pet.settings.get('pet_catchphrase', '喵~')
 
-        # 标记 loading，刷新日记 Tab 状态栏
         self._diary_loading = True
         if self.win and self.win.winfo_exists():
             try:
@@ -2239,13 +2244,12 @@ class MainPanel:
                 pass
 
         def _gen():
+            success = False
             try:
-                import services.diary as diary_service
                 text = diary_service.generate_diary(
                     stats_snap, counts, pet_name, pet_personality, pet_catchphrase, today
                 )
                 if text:
-                    # 删除今天的旧日记（如有），然后创建新的
                     all_notes = notes_service.load_all()
                     remaining = [
                         n for n in all_notes
@@ -2253,12 +2257,22 @@ class MainPanel:
                     ]
                     notes_service.save_all(remaining)
                     notes_service.create_diary(text, today)
+                    success = True
             except Exception:
                 pass
             finally:
+                self._diary_generating = False
                 self._diary_loading = False
                 if self.win and self.win.winfo_exists():
-                    self.win.after(0, self._diary_refresh_if_active)
+                    def _done():
+                        if not success:
+                            try:
+                                self._diary_status.configure(text='更新失败，稍后再试')
+                            except Exception:
+                                pass
+                        else:
+                            self._diary_refresh_if_active()
+                    self.win.after(0, _done)
 
         threading.Thread(target=_gen, daemon=True).start()
 
