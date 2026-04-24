@@ -2127,8 +2127,8 @@ class MainPanel:
                      font=('PingFang SC', 9)).place(x=8, y=94)
 
             del_btn = tk.Label(card, text='×', bg=card_bg, fg=th['FG_MUTED'],
-                               font=('PingFang SC', 14, 'bold'), cursor='hand2')
-            del_btn.place(x=CARD_W-20, y=2)
+                               font=('PingFang SC', 12, 'bold'), cursor='hand2')
+            del_btn.place(relx=1.0, rely=0.0, anchor='ne', x=-4, y=4)
 
             def _open(e, nid=note['id']):
                 if is_diary:
