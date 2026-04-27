@@ -1855,18 +1855,25 @@ class MainPanel:
     def _restore_pet_log(self):
         """启动时从文件恢复历史互动记录，末尾加分割线后写入醒来消息。"""
         self._pet_log_history = load_json(PET_LOG_FILE, [])
+        now_hm = time.strftime('%H:%M')
+
+        # 同一分钟内已经有醒来记录则不重复写（防止调试重启刷屏）
+        wake_line = f'[{now_hm}] 宠物醒来了，开始新的一天 ✨'
+        already_woke = self._pet_log_history and self._pet_log_history[-1] == wake_line
+
         self._pet_log.configure(state=tk.NORMAL)
         if self._pet_log_history:
             for entry in self._pet_log_history:
                 self._pet_log.insert('end', entry + '\n')
-            ts = time.strftime('%m/%d %H:%M')
-            self._pet_log.insert('end', f'── {ts} 重新醒来 ──────────────\n')
-        wake_line = f'[{time.strftime("%H:%M")}] 宠物醒来了，开始新的一天 ✨'
-        self._pet_log.insert('end', wake_line + '\n')
+            if not already_woke:
+                ts = time.strftime('%m/%d %H:%M')
+                self._pet_log.insert('end', f'── {ts} 重新醒来 ──────────────\n')
+        if not already_woke:
+            self._pet_log.insert('end', wake_line + '\n')
+            self._pet_log_history.append(wake_line)
+            save_json(PET_LOG_FILE, self._pet_log_history[-200:])
         self._pet_log.see('end')
         self._pet_log.configure(state=tk.DISABLED)
-        self._pet_log_history.append(wake_line)
-        save_json(PET_LOG_FILE, self._pet_log_history[-200:])
 
     def _log_pet(self, msg):
         ts = time.strftime('%H:%M')
