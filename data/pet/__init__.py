@@ -1,14 +1,13 @@
 """
 data/pet — PetStats：心情 / 饱食 / 精力数值管理
 """
-from config import PET_STATS_FILE
-from data.settings import load_json, save_json
+from core.state_manager import save_pet_stats, load_pet_stats
 
 
 class PetStats:
     """
     三个数值各 0-100，随时间自然衰减，互动可回复。
-    数值持久化到 pet_stats.json，重启后继续。
+    数值持久化到 ~/.desktop-pet-state.json，重启后继续。
     """
     DECAY_INTERVAL_MS = 10 * 60 * 1000   # 每 10 分钟衰减一次
     HUNGER_DECAY  = 6    # 饱食度每次 -6
@@ -25,13 +24,13 @@ class PetStats:
     ]
 
     def __init__(self):
-        data = load_json(PET_STATS_FILE, {})
+        data = load_pet_stats() or {}
         self.hunger = float(data.get('hunger', 80))
         self.energy = float(data.get('energy', 80))
         if 'mood' in data:
             self.mood = float(data['mood'])
         else:
-            self._compute_mood()   # one-time fallback only if no saved mood
+            self._compute_mood()
 
     def _compute_mood(self):
         self.mood = (self.hunger * 0.5 + self.energy * 0.5)
@@ -120,11 +119,11 @@ class PetStats:
         return '你现在心情很差，说话有气无力，会撒娇说想被陪伴。'
 
     def _save(self):
-        save_json(PET_STATS_FILE, {
-            'hunger': round(self.hunger, 1),
-            'energy': round(self.energy, 1),
-            'mood':   round(self.mood, 1),
-        })
+        save_pet_stats(
+            round(self.hunger, 1),
+            round(self.energy, 1),
+            round(self.mood, 1),
+        )
 
 
 # ── 互动台词池（按状态分支）──────────────────────────

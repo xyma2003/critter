@@ -1,18 +1,17 @@
 """
-services/notes — 便签 CRUD，持久化到 notes.json
+services/notes — 便签 CRUD，通过 state_manager 持久化
 """
 import time
 
-from config import NOTE_FILE
-from data.settings import load_json, save_json
+from core.state_manager import load_notes, save_notes
 
 
 def load_all():
-    return load_json(NOTE_FILE, {'notes': []}).get('notes', [])
+    return load_notes()
 
 
 def save_all(notes):
-    save_json(NOTE_FILE, {'notes': notes})
+    save_notes(notes)
 
 
 def create(content, title=''):

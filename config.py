@@ -1,25 +1,72 @@
 """
-config.py — 路径常量、主题字典、全局颜色常量
+config.py — 合并版配置（PyQt6 + LangGraph + Critter 功能）
 """
 import os
+from dotenv import load_dotenv
 
-# ── 文件路径常量 ──────────────────────────────────────
-NEWS_SCRIPT       = os.path.expanduser("~/.openclaw/workspace/skills/news-digest/scripts/fetch_news.py")
-CACHE_FILE        = os.path.expanduser("~/.openclaw/workspace/desktop-pet/news_cache.json")
-NOTE_FILE         = os.path.expanduser("~/.openclaw/workspace/desktop-pet/notes.json")
-SETTINGS_FILE     = os.path.expanduser("~/.openclaw/workspace/desktop-pet/settings.json")
-BOOKMARKS_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/bookmarks.json")
-WEATHER_FILE      = os.path.expanduser("~/.openclaw/workspace/desktop-pet/weather.json")
-USER_PROFILE_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/user_profile.json")
-CHAT_HISTORY_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/chat_history.json")
-PET_STATS_FILE    = os.path.expanduser("~/.openclaw/workspace/desktop-pet/pet_stats.json")
-PET_AVATAR_FILE   = os.path.expanduser("~/.openclaw/workspace/desktop-pet/data/pet_avatar.png")
-DIARY_COUNTS_FILE = os.path.expanduser("~/.openclaw/workspace/desktop-pet/diary_counts.json")
-PET_LOG_FILE      = os.path.expanduser("~/.openclaw/workspace/desktop-pet/pet_log.json")
-CACHE_TTL         = 30 * 60   # 30 分钟
+load_dotenv()
+
+# ── 文件路径 ──────────────────────────────────────────────
+_BASE = os.path.expanduser("~/.openclaw/workspace/desktop-pet")
+
+STATE_FILE        = os.path.expanduser("~/.desktop-pet-state.json")
+PET_AVATAR_FILE   = os.path.join(_BASE, "data", "pet_avatar.png")
+DIARY_COUNTS_FILE = os.path.join(_BASE, "diary_counts.json")
+PET_LOG_FILE      = os.path.join(_BASE, "pet_log.json")
 CLAUDE_CLI        = '/opt/homebrew/bin/claude'
 
-# ── 颜色主题 ──────────────────────────────────────────
+# ── PyQt6 宠物 & 动画 ─────────────────────────────────────
+class Config:
+    # 宠物外观
+    DEFAULT_PET             = "border_collie"
+    PET_SIZE                = (150, 150)
+    PET_SCALE_ALERT         = 2.0
+
+    # 动画
+    IDLE_STATE_SWITCH_INTERVAL = 30   # 秒
+    ANIMATION_FPS           = 30
+    ALERT_RUN_SPEED         = 15      # 像素/帧
+
+    # 主面板
+    MAIN_PANEL_WIDTH        = 900
+    MAIN_PANEL_HEIGHT       = 700
+
+    # AI
+    ENABLE_AI_AGENT         = True
+    AI_MODEL                = "claude-sonnet-4-5"
+    ANTHROPIC_API_KEY       = os.getenv("ANTHROPIC_API_KEY", "")
+
+    # 功能开关
+    ENABLED_FEATURES        = ["news_push", "timer"]
+
+    # 新闻
+    NEWS_SOURCES = {
+        "baidu":  "https://top.baidu.com/board?tab=realtime",
+        "weibo":  "https://s.weibo.com/top/summary",
+        "google": "https://trends.google.com/trending",
+    }
+    NEWS_CACHE_DURATION     = 1800    # 秒
+
+    # 定时器
+    DEFAULT_TIMER_MINUTES   = 10
+
+    # 宠物默认人设
+    DEFAULT_PET_NAME        = '边牧'
+    DEFAULT_PET_PERSONALITY = '活泼'
+    DEFAULT_PET_CATCHPHRASE = '汪~'
+    DEFAULT_PET_EMOJI       = '🐕'
+
+    # 主题
+    DEFAULT_THEME           = 'light'   # 'light' | 'dark'
+
+    # 聊天历史
+    MAX_CHAT_SESSIONS       = 50
+
+    # Agent 触发关键词（包含这些词时走 LangGraph，否则走 Claude CLI）
+    AGENT_TRIGGER_KEYWORDS  = ['帮我', '帮忙', '设置', '定一个', '查询', '查一下', '搜索']
+
+
+# ── tkinter THEMES（保留，供 services/ 代码引用颜色时查询）────
 THEMES = {
     "dark": {
         "BG_WIN":     "#1a1a1a",
