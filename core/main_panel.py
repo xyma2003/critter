@@ -204,7 +204,11 @@ class MainPanel(QWidget):
         for emoji, label, builder in tabs:
             btn = QPushButton(f"{emoji}\n{label}", objectName="nav_btn")
             btn.setCheckable(True)
-            btn.setFixedHeight(60)
+            btn.setFixedHeight(64)
+            # emoji 行大，文字行小
+            from PyQt6.QtGui import QFont
+            f = QFont("PingFang SC", 10)
+            btn.setFont(f)
             nav_layout.addWidget(btn)
             self._nav_btns.append(btn)
 

@@ -1,6 +1,6 @@
-from PyQt6.QtWidgets import QWidget, QLabel
+from PyQt6.QtWidgets import QWidget, QLabel, QMenu
 from PyQt6.QtCore import Qt, QTimer, QPoint
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QPixmap, QAction
 from config import Config
 from .animation_manager import AnimationManager, AnimationState
 from .event_handler import EventHandler
@@ -14,30 +14,33 @@ class PetWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.main_panel = None
-        self.init_ui()
         self.animation_manager = AnimationManager(self)
         self.event_handler = EventHandler(self)
         self.alert_timer = None
         self.alert_position = QPoint(0, 0)
         self.alert_velocity = QPoint(5, 5)
         self.speech_bubble = SpeechBubble()
+        self.init_ui()
 
     def init_ui(self):
         # 无边框、置顶、透明背景
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
+            Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         # 设置窗口大小
         self.resize(*Config.PET_SIZE)
 
+        # 透明背景
+        self.setStyleSheet("background: transparent;")
+
         # 显示宠物图片
         self.pet_label = QLabel(self)
         self.pet_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.pet_label.resize(*Config.PET_SIZE)
+        self.pet_label.setStyleSheet("background: transparent;")
 
         # 加载默认动画
         self.update_animation(AnimationState.IDLE_SLEEP)
@@ -60,14 +63,32 @@ class PetWindow(QWidget):
                 Qt.TransformationMode.SmoothTransformation
             ))
         else:
-            # 占位文本
-            self.pet_label.setText(f"🐕\n{state.value}")
+            self.pet_label.setText("🐕")
 
     def mousePressEvent(self, event):
         self.event_handler.handle_mouse_press(event)
 
     def mouseMoveEvent(self, event):
         self.event_handler.handle_mouse_move(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            moved = (event.globalPosition().toPoint() - self.event_handler.drag_position - self.pos()).manhattanLength()
+            if moved < 5:
+                self.event_handler.handle_single_click()
+        elif event.button() == Qt.MouseButton.RightButton:
+            self._show_context_menu(event.globalPosition().toPoint())
+
+    def _show_context_menu(self, pos):
+        menu = QMenu(self)
+        open_action = QAction("打开面板", self)
+        open_action.triggered.connect(self.show_main_panel)
+        quit_action = QAction("退出", self)
+        quit_action.triggered.connect(lambda: __import__('sys').exit(0))
+        menu.addAction(open_action)
+        menu.addSeparator()
+        menu.addAction(quit_action)
+        menu.exec(pos)
 
     def show_main_panel(self):
         if self.main_panel:
