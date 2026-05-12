@@ -1,7 +1,7 @@
 """
 ui/chat_list.py — 聊天列表，气泡风格，跟随主题色
 """
-from PyQt6.QtWidgets import QScrollArea, QWidget, QVBoxLayout, QLabel, QSizePolicy
+from PyQt6.QtWidgets import QScrollArea, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePolicy
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPainter, QPainterPath
 
@@ -14,13 +14,14 @@ class BubbleLabel(QWidget):
         self.is_user = is_user
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
-        outer = QVBoxLayout(self)
+        outer = QHBoxLayout(self)
         outer.setContentsMargins(12, 4, 12, 4)
+        outer.setSpacing(0)
 
         # 气泡内容标签
         self._label = QLabel(text)
         self._label.setWordWrap(True)
-        self._label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        self._label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self._label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
         if is_user:
@@ -31,10 +32,11 @@ class BubbleLabel(QWidget):
                     border-radius: 14px;
                     padding: 10px 14px;
                     font-size: 13px;
-                    line-height: 1.5;
                 }
             """)
-            outer.setAlignment(Qt.AlignmentFlag.AlignRight)
+            self._label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Minimum)
+            outer.addStretch()
+            outer.addWidget(self._label)
         else:
             self._label.setStyleSheet("""
                 QLabel {
@@ -44,14 +46,11 @@ class BubbleLabel(QWidget):
                     border: 1px solid #F0D8C0;
                     padding: 10px 14px;
                     font-size: 13px;
-                    line-height: 1.5;
                 }
             """)
-            outer.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        # 限制气泡最大宽度
-        self._label.setMaximumWidth(340)
-        outer.addWidget(self._label)
+            self._label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Minimum)
+            outer.addWidget(self._label)
+            outer.addStretch()
 
     def update_text(self, text: str):
         self._label.setText(text)

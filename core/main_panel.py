@@ -370,6 +370,7 @@ class MainPanel(QWidget):
     def _build_news_tab(self, parent: QWidget):
         layout = QVBoxLayout(parent)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         toolbar = QWidget(objectName="toolbar")
         tb = QHBoxLayout(toolbar)
@@ -381,15 +382,81 @@ class MainPanel(QWidget):
         tb.addWidget(refresh_btn)
         layout.addWidget(toolbar)
 
-        self._news_text = QTextEdit()
-        self._news_text.setReadOnly(True)
-        self._news_text.setPlaceholderText("点击刷新获取今日热点…")
-        layout.addWidget(self._news_text, 1)
+        # 滚动区域放新闻卡片
+        self._news_scroll = QScrollArea()
+        self._news_scroll.setWidgetResizable(True)
+        self._news_scroll.setStyleSheet("QScrollArea { border: none; }")
+        self._news_container = QWidget()
+        self._news_layout = QVBoxLayout(self._news_container)
+        self._news_layout.setContentsMargins(12, 12, 12, 12)
+        self._news_layout.setSpacing(8)
+        self._news_layout.addWidget(QLabel("点击刷新获取今日热点…", objectName="subtitle"))
+        self._news_layout.addStretch()
+        self._news_scroll.setWidget(self._news_container)
+        layout.addWidget(self._news_scroll, 1)
 
     def _refresh_news(self):
-        self._news_text.setPlainText("获取中…")
-        result = self._news_feature.execute()
-        self._news_text.setMarkdown(result.get('message', '获取失败'))
+        # 清空
+        while self._news_layout.count():
+            item = self._news_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        loading = QLabel("获取中…", objectName="subtitle")
+        self._news_layout.addWidget(loading)
+        self._news_layout.addStretch()
+
+        # 后台获取
+        import threading
+        def fetch():
+            result = self._news_feature.execute()
+            items = result.get('data', [])
+            QTimer.singleShot(0, lambda: self._render_news_cards(items, result.get('success', False)))
+        threading.Thread(target=fetch, daemon=True).start()
+
+    def _render_news_cards(self, items: list, success: bool):
+        # 清空
+        while self._news_layout.count():
+            item = self._news_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not items:
+            self._news_layout.addWidget(QLabel("暂无新闻，请检查网络后重试", objectName="subtitle"))
+            self._news_layout.addStretch()
+            return
+
+        for news_item in items:
+            card = QFrame(objectName="card")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(12, 10, 12, 10)
+            card_layout.setSpacing(4)
+
+            # 来源标签
+            source = news_item.get('source', '')
+            if source:
+                src_lbl = QLabel(source, objectName="subtitle")
+                card_layout.addWidget(src_lbl)
+
+            # 标题
+            title = news_item.get('title', '')
+            title_lbl = QLabel(title)
+            title_lbl.setWordWrap(True)
+            title_lbl.setStyleSheet("font-size: 13px; font-weight: 500;")
+            card_layout.addWidget(title_lbl)
+
+            # 链接按钮（只有有链接才显示）
+            link = news_item.get('link', '').strip()
+            if link:
+                link_btn = QPushButton("🔗 查看原文", objectName="secondary_btn")
+                link_btn.setFixedHeight(28)
+                link_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                link_btn.clicked.connect(lambda _, url=link: __import__('subprocess').Popen(['open', url]))
+                card_layout.addWidget(link_btn)
+
+            self._news_layout.addWidget(card)
+
+        self._news_layout.addStretch()
 
     # ─── Tab 3: 宠物 ────────────────────────────────────
 
@@ -685,9 +752,9 @@ class MainPanel(QWidget):
     def _select_city(self, city: str):
         self._weather_selected = city
         self._weather_detail.setText(f"⏳ 获取 {city} 天气中…")
-        t = WeatherThread(city)
-        t.done.connect(self._on_weather_loaded)
-        t.start()
+        self._weather_thread = WeatherThread(city)  # 保存引用防止被 GC
+        self._weather_thread.done.connect(self._on_weather_loaded)
+        self._weather_thread.start()
 
     def _on_weather_loaded(self, data, from_cache, error):
         if error:
