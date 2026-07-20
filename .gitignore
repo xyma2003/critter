@@ -3,6 +3,8 @@ __pycache__/
 *.pyo
 .DS_Store
 *.log
+
+# User data files
 news_cache.json
 user_profile.json
 notes.json
@@ -11,3 +13,11 @@ pet_log.json
 diary_counts.json
 chat_history.json
 weather.json
+bookmarks.json
+settings.json
+
+# AI assistant / workflow scaffolding (internal)
+.claude/
+.planning/
+CLAUDE.md
+INTERVIEW_PREP.md
