@@ -28,7 +28,7 @@ from data.pet import PetStats, FEED_LINES, PLAY_LINES, REST_LINES, PET_LINES
 from features.base_feature import BaseFeature
 from features.news_push.news_feature import NewsFeature
 from features.timer.timer_feature import TimerFeature
-from services.chat_history import load_sessions, save_session, delete_session
+from services.chat_history import load_sessions, save_session
 from services.notes import load_all as load_notes, create as create_note, update as update_note, delete as delete_note
 from services.weather import fetch_weather
 from ui.chat_list import ChatList
@@ -155,6 +155,15 @@ class MainPanel(QWidget):
         self._timer_feature.pet_window_ref = pet_window
         self._features.append(self._news_feature)
         self._features.append(self._timer_feature)
+
+        # Inject live instances into agent/tools.py so the AI agent's set_timer
+        # tool uses the SAME TimerFeature (with pet_window_ref set) — otherwise
+        # the alarm animation would never fire when set via chat.
+        try:
+            from agent.tools import set_features
+            set_features(self._news_feature, self._timer_feature)
+        except Exception:
+            pass
 
         # 天气
         self._weather_cities: list[str] = self._app_settings.get('weather_cities', [])
@@ -353,7 +362,13 @@ class MainPanel(QWidget):
 
     def _save_current_session(self, last_response: str):
         if self._current_session is None:
-            return
+            # Lazily create a session so the first chat (without clicking "+ 新对话") persists
+            self._current_session = {
+                'id': int(time.time() * 1000),
+                'title': '',
+                'bubbles': [],
+            }
+        if not self._current_session.get('title') and self._chat_history:
         if not self._current_session.get('title') and self._chat_history:
             for msg in self._chat_history:
                 if msg['role'] == 'user':
@@ -451,7 +466,7 @@ class MainPanel(QWidget):
                 link_btn = QPushButton("🔗 查看原文", objectName="secondary_btn")
                 link_btn.setFixedHeight(28)
                 link_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                link_btn.clicked.connect(lambda _, url=link: __import__('subprocess').Popen(['open', url]))
+                link_btn.clicked.connect(lambda _, url=link: subprocess.Popen(['open', url]))
                 card_layout.addWidget(link_btn)
 
             self._news_layout.addWidget(card)
@@ -482,8 +497,6 @@ class MainPanel(QWidget):
             bar.setRange(0, 100)
             bar.setTextVisible(False)
 
-        self._hunger_label = QLabel()
-        self._energy_label = QLabel()
         stats_layout.addWidget(self._mood_label)
         stats_layout.addWidget(QLabel("🍚 饱食度"))
         stats_layout.addWidget(self._hunger_bar)
@@ -540,7 +553,6 @@ class MainPanel(QWidget):
         self._update_pet_stats_ui()
         msg = random.choice(lines)
         self._log_pet(msg)
-        self.pet_window.trigger_bounce() if hasattr(self.pet_window, 'trigger_bounce') else None
 
     def _pet_play(self):
         lines = PLAY_LINES['bored'] if self.stats.mood < 40 else (

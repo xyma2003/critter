@@ -5,6 +5,12 @@ from .tools import get_all_tools
 import json
 import os
 
+try:
+    from config import Config
+    _DEFAULT_MODEL = Config.AI_MODEL
+except Exception:
+    _DEFAULT_MODEL = "claude-sonnet-4-5"
+
 
 _llm = None
 
@@ -22,7 +28,7 @@ def get_llm():
         except Exception:
             pass
     _llm = ChatAnthropic(
-        model="claude-3-5-sonnet-20241022",
+        model=_DEFAULT_MODEL,
         api_key=api_key,
         temperature=0.7
     )

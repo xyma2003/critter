@@ -67,6 +67,11 @@ def main():
     def on_quit():
         pos = pet_window.pos()
         save_window_position(pos.x(), pos.y())
+        try:
+            from core.greeting import save_last_seen
+            save_last_seen()
+        except Exception:
+            pass
 
     app.aboutToQuit.connect(on_quit)
     sys.exit(app.exec())

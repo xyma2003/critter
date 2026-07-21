@@ -43,10 +43,8 @@ def code_to_emoji(code: int) -> str:
 
 
 def _build_ssl_ctx() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
+    """SSL context for wttr.in calls. Use default verification."""
+    return ssl.create_default_context()
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

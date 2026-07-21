@@ -40,12 +40,12 @@ def generate_diary(stats_snap, counts, pet_name, pet_personality, pet_catchphras
 
     catchphrase_quoted = '\u201c' + pet_catchphrase + '\u201d'
     prompt = (
-        f"你是一只名叫{pet_name}的桌面小猫，性格{pet_personality}，"
+        f"你是一只名叫{pet_name}的桌面宠物，性格{pet_personality}，"
         f"口头禅是{catchphrase_quoted}。\n"
         f"今天是{date_readable}，写一条今天的日记（100字以内），"
-        f"用第一人称猫咪视角，内容基于：{interaction_str}。"
+        f"用第一人称宠物视角，内容基于：{interaction_str}。"
         f"当前心情状态：{stats_snap.get('mood_label', '一般')}。\n"
-        f"语气可爱真实，不要太正式，像猫咪在自言自语。"
+        f"语气可爱真实，不要太正式，像宠物在自言自语。"
         f"直接输出日记正文，不加标题、不加日期前缀。"
     )
 
