@@ -215,7 +215,6 @@ class MainPanel(QWidget):
             btn.setCheckable(True)
             btn.setFixedHeight(64)
             # emoji 行大，文字行小
-            from PyQt6.QtGui import QFont
             f = QFont("PingFang SC", 10)
             btn.setFont(f)
             nav_layout.addWidget(btn)
@@ -422,12 +421,26 @@ class MainPanel(QWidget):
         self._news_layout.addStretch()
 
         # 后台获取
-        import threading
         def fetch():
-            result = self._news_feature.execute()
-            items = result.get('data', [])
-            QTimer.singleShot(0, lambda: self._render_news_cards(items, result.get('success', False)))
+            try:
+                result = self._news_feature.execute()
+                items = result.get('data', [])
+                QTimer.singleShot(0, lambda: self._render_news_cards(items, result.get('success', False)))
+            except Exception as e:
+                err_msg = f"获取失败: {e}"
+                QTimer.singleShot(0, lambda: self._render_news_error(err_msg))
         threading.Thread(target=fetch, daemon=True).start()
+
+    def _render_news_error(self, msg: str):
+        """Show an error message in the news panel when fetch fails."""
+        while self._news_layout.count():
+            item = self._news_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        err = QLabel(msg, objectName="subtitle")
+        err.setStyleSheet("color: #ef5350; padding: 20px;")
+        self._news_layout.addWidget(err)
+        self._news_layout.addStretch()
 
     def _render_news_cards(self, items: list, success: bool):
         # 清空
@@ -810,6 +823,7 @@ class MainPanel(QWidget):
 
     def _generate_diary(self):
         from services.diary import generate_diary
+        from services.notes import create_diary
         settings = self._app_settings
         stats_snap = {
             'mood':       self.stats.mood,
@@ -821,16 +835,27 @@ class MainPanel(QWidget):
         self._diary_text.setPlainText("正在生成日记…")
 
         def run():
-            text = generate_diary(
-                stats_snap, {},
-                settings.get('pet_name', '边牧'),
-                settings.get('pet_personality', '活泼'),
-                settings.get('pet_catchphrase', '汪~'),
-                date_str,
-            )
-            QTimer.singleShot(0, lambda: self._diary_text.setPlainText(
-                text or "生成失败，请检查 Claude CLI 是否可用。"
-            ))
+            try:
+                text = generate_diary(
+                    stats_snap, {},
+                    settings.get('pet_name', '边牧'),
+                    settings.get('pet_personality', '活泼'),
+                    settings.get('pet_catchphrase', '汪~'),
+                    date_str,
+                )
+                if text:
+                    # Persist the generated diary as a note with kind='diary' so
+                    # it survives app restart (previously only displayed, never saved).
+                    try:
+                        create_diary(text, date_str)
+                    except Exception:
+                        pass  # persistence is best-effort; display still works
+                QTimer.singleShot(0, lambda: self._diary_text.setPlainText(
+                    text or "生成失败，请检查 Claude CLI 是否可用。"
+                ))
+            except Exception as e:
+                err_msg = f"生成失败: {e}"
+                QTimer.singleShot(0, lambda: self._diary_text.setPlainText(err_msg))
 
         threading.Thread(target=run, daemon=True).start()
 
@@ -903,7 +928,6 @@ class MainPanel(QWidget):
 
     def _apply_theme(self, mode: str):
         from PyQt6.QtWidgets import QApplication
-        from ui.theme import apply_theme
         self._theme_mode = mode
         save_theme(mode)
         apply_theme(QApplication.instance(), mode)

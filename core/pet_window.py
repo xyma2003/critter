@@ -63,7 +63,17 @@ class PetWindow(QWidget):
                 Qt.TransformationMode.SmoothTransformation
             ))
         else:
-            self.pet_label.setText("🐕")
+            # No GIF assets shipped — fall back to per-state emoji so the
+            # AnimationManager state switching is still visible to the user.
+            # Ship assets/animations/<pet>/<state>.gif to enable real animations.
+            state_emoji = {
+                AnimationState.IDLE_SLEEP: "😴",
+                AnimationState.IDLE_WALK: "🐕",
+                AnimationState.INTERACT_WASH: "🛁",
+                AnimationState.INTERACT_WAG: "🐶",
+                AnimationState.ALERT_RUN: "🚨",
+            }
+            self.pet_label.setText(state_emoji.get(state, "🐕"))
 
     def mousePressEvent(self, event):
         self.event_handler.handle_mouse_press(event)

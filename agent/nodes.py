@@ -147,19 +147,22 @@ def execute_step(state: AgentState) -> AgentState:
     
     # 执行工具调用
     tool_results = state.get("tool_results", {})
-    last_result = {"success": True, "message": "步骤完成"}
-    
+    # 默认标记为失败 — 如果 LLM 没调任何工具，agent 应进入 reflect 决定 replan/continue/abort，
+    # 而不是无脑 success=True 跑下一步（旧 bug：LLM 无 tool_calls 时 agent 会空跑所有 plan step）
+    last_result = {"success": False, "message": "LLM 未调用任何工具"}
+
     if hasattr(response, 'tool_calls') and response.tool_calls:
+        last_result = {"success": True, "message": "步骤完成"}
         for tool_call in response.tool_calls:
             tool_name = tool_call["name"]
             tool_args = tool_call["args"]
-            
+
             # 查找并执行工具
             for tool in tools:
                 if tool.name == tool_name:
                     try:
                         result = tool.invoke(tool_args)
-                        last_result = result
+                        last_result = result if isinstance(result, dict) and "success" in result else {"success": True, "message": "步骤完成", "result": result}
                         tool_results[f"step_{next_step_idx}"] = result
                     except Exception as e:
                         last_result = {

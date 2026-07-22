@@ -2,6 +2,7 @@
 config.py — 合并版配置（PyQt6 + LangGraph + Critter 功能）
 """
 import os
+import shutil
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,7 +14,8 @@ STATE_FILE        = os.path.expanduser("~/.desktop-pet-state.json")
 PET_AVATAR_FILE   = os.path.join(_BASE, "data", "pet_avatar.png")
 DIARY_COUNTS_FILE = os.path.join(_BASE, "diary_counts.json")
 PET_LOG_FILE      = os.path.join(_BASE, "pet_log.json")
-CLAUDE_CLI        = '/opt/homebrew/bin/claude'
+# Resolve claude CLI from PATH; fall back to common homebrew path on Apple Silicon.
+CLAUDE_CLI        = shutil.which('claude') or '/opt/homebrew/bin/claude'
 
 # ── PyQt6 宠物 & 动画 ─────────────────────────────────────
 class Config:
