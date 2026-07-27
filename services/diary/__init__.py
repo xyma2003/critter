@@ -1,7 +1,12 @@
 """
 services/diary — 宠物日记生成服务
-调用 Claude CLI 生成当日宠物视角日记，返回纯文本。
+调用 LLM 生成当日宠物视角日记，返回纯文本。
+
+支持两种 backend：
+- SiliconFlow (OpenAI-compatible)：设 OPENAI_API_KEY 环境变量
+- Claude CLI：fallback（如果 Claude CLI 在 PATH 中）
 """
+import os
 import subprocess
 import datetime
 from config import CLAUDE_CLI
@@ -49,6 +54,27 @@ def generate_diary(stats_snap, counts, pet_name, pet_personality, pet_catchphras
         f"直接输出日记正文，不加标题、不加日期前缀。"
     )
 
+    # SiliconFlow (OpenAI-compatible) backend — preferred when OPENAI_API_KEY is set
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    if openai_key:
+        try:
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=openai_key,
+                base_url=os.environ.get("OPENAI_API_BASE", "https://api.siliconflow.cn/v1"),
+            )
+            resp = client.chat.completions.create(
+                model=os.environ.get("OPENAI_MODEL", "Qwen/Qwen3-32B"),
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200,
+                temperature=0.7,
+            )
+            text = resp.choices[0].message.content.strip()
+            return text if text else None
+        except Exception:
+            return None
+
+    # Claude CLI fallback
     try:
         result = subprocess.run(
             [CLAUDE_CLI, '--print', prompt],

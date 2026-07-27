@@ -21,10 +21,26 @@ pip install -r requirements.txt
 python3 main.py
 ```
 
-需要：
-- `ANTHROPIC_API_KEY` 环境变量（或 `.env` 文件），用于 LangGraph Agent
-- [Claude CLI](https://claude.ai/code) 在 PATH 中（AI 对话和日记生成会调用）
+需要（二选一）：
+
+**Option A — SiliconFlow / OpenAI-compatible（国内推荐）**：
+- `.env` 文件配置 `OPENAI_API_KEY` + `OPENAI_API_BASE` + `OPENAI_MODEL`
+- 适用于国内环境，无需 VPN
+- 获取 key：https://cloud.siliconflow.cn/
+
+**Option B — Anthropic（海外）**：
+- `ANTHROPIC_API_KEY` 环境变量（或 `.env` 文件）
+- [Claude CLI](https://claude.ai/code) 在 PATH 中（日记生成 fallback 会调用）
 - macOS（`utils/objc.py` 使用 ctypes 调用 libobjc 管理窗口层级）
+
+`.env` 示例（SiliconFlow）：
+```bash
+OPENAI_API_KEY=sk-...
+OPENAI_API_BASE=https://api.siliconflow.cn/v1
+OPENAI_MODEL=Qwen/Qwen3-32B
+```
+
+> 当 `OPENAI_API_KEY` 设了，agent 和日记生成都走 SiliconFlow；否则 fallback 到 Anthropic + Claude CLI。
 
 ## 项目结构
 

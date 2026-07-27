@@ -21,3 +21,7 @@ settings.json
 .planning/
 CLAUDE.md
 INTERVIEW_PREP.md
+
+# Environment variables (API keys)
+.env
+.env.local

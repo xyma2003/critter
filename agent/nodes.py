@@ -16,10 +16,26 @@ _llm = None
 
 
 def get_llm():
-    """获取LLM实例（单例）"""
+    """获取LLM实例（单例）。
+
+    优先使用 SiliconFlow (OpenAI-compatible) backend（如果 OPENAI_API_KEY 设了），
+    否则 fallback 到 Anthropic。
+    """
     global _llm
     if _llm is not None:
         return _llm
+    # SiliconFlow / OpenAI-compatible backend (domestic-friendly)
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    if openai_key:
+        from langchain_openai import ChatOpenAI
+        _llm = ChatOpenAI(
+            model=os.environ.get("OPENAI_MODEL", "Qwen/Qwen3-32B"),
+            api_key=openai_key,
+            base_url=os.environ.get("OPENAI_API_BASE", "https://api.siliconflow.cn/v1"),
+            temperature=0.7,
+        )
+        return _llm
+    # Anthropic fallback
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         try:
