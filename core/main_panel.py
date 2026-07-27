@@ -368,7 +368,6 @@ class MainPanel(QWidget):
                 'bubbles': [],
             }
         if not self._current_session.get('title') and self._chat_history:
-        if not self._current_session.get('title') and self._chat_history:
             for msg in self._chat_history:
                 if msg['role'] == 'user':
                     self._current_session['title'] = msg['content'][:20]
