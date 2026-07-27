@@ -54,13 +54,11 @@ def understand_intent(state: AgentState) -> AgentState:
     
     response = llm.invoke(messages)
     
-    new_messages = list(state.get("messages", []))
-    new_messages.append(response)
     
     return {
         **state,
         "current_task": response.content,
-        "messages": new_messages,
+        "messages": [response],
         "status": "planning"
     }
 
@@ -103,14 +101,12 @@ def plan_task(state: AgentState) -> AgentState:
             step = line.split(".", 1)[-1].strip() if "." in line else line.lstrip("- ")
             plan.append(step)
     
-    new_messages = list(state.get("messages", []))
-    new_messages.append(response)
     
     return {
         **state,
         "plan": plan,
         "steps_completed": [],
-        "messages": new_messages,
+        "messages": [response],
         "status": "executing"
     }
 
@@ -174,8 +170,6 @@ def execute_step(state: AgentState) -> AgentState:
     
     tool_results["last_execution"] = last_result
     
-    new_messages = list(state.get("messages", []))
-    new_messages.append(response)
     
     steps_completed = list(state.get("steps_completed", []))
     steps_completed.append(next_step)
@@ -184,7 +178,7 @@ def execute_step(state: AgentState) -> AgentState:
         **state,
         "steps_completed": steps_completed,
         "tool_results": tool_results,
-        "messages": new_messages,
+        "messages": [response],
         "status": "executing"
     }
 
@@ -214,13 +208,11 @@ def reflect_and_decide(state: AgentState) -> AgentState:
     response = llm.invoke(messages)
     decision = response.content.strip().lower()
     
-    new_messages = list(state.get("messages", []))
-    new_messages.append(response)
     
     return {
         **state,
         "reasoning": decision,
-        "messages": new_messages,
+        "messages": [response],
         "status": "reflecting"
     }
 
@@ -243,11 +235,9 @@ def respond_to_user(state: AgentState) -> AgentState:
     
     response = llm.invoke(messages)
     
-    new_messages = list(state.get("messages", []))
-    new_messages.append(response)
     
     return {
         **state,
-        "messages": new_messages,
+        "messages": [response],
         "status": "done"
     }

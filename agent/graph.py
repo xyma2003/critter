@@ -15,14 +15,15 @@ def should_continue_execution(state: AgentState) -> str:
     plan = state.get("plan", [])
     last_result = state.get("tool_results", {}).get("last_execution", {})
     
-    # 检查是否所有步骤都完成
-    if len(steps_completed) >= len(plan):
-        return "respond"
-    
-    # 检查上一步是否失败
+    # 先检查上一步是否失败 → 进 reflect 反思
+    # 必须在 length check 之前，否则最后一步失败会跳过 reflect 直接 respond
     if last_result and not last_result.get("success", True):
         return "reflect"
-    
+
+    # 再检查是否所有步骤都完成
+    if len(steps_completed) >= len(plan):
+        return "respond"
+
     # 继续执行下一步
     return "execute"
 
