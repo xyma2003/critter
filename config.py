@@ -5,7 +5,7 @@ import os
 import shutil
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)  # .env wins over stale shell vars
 
 # ── 文件路径 ──────────────────────────────────────────────
 _BASE = os.path.expanduser("~/.openclaw/workspace/desktop-pet")
