@@ -21,20 +21,38 @@ macOS 桌面宠物应用。一只边牧常驻桌面右下角，点击后展开�
 - **LLM API Key**（二选一）：
   - SiliconFlow（国内推荐，[获取地址](https://cloud.siliconflow.cn/)）
   - Anthropic（[申请地址](https://console.anthropic.com/)）
-- **[Claude CLI](https://claude.ai/code) 在 PATH 中**（日记生成 fallback 会调用，仅 Anthropic 模式需要）
+- **[Claude CLI](https://claude.ai/code) 在 PATH 中**（仅 Anthropic 模式需要，日记生成 fallback 会调用；SiliconFlow 模式不需要）
+  - 安装：`npm install -g @anthropic-ai/claude-code`（需 Node.js 18+）
 
-## 启动
+## Quick Start
+
+### 1. Clone the repo
+
+```bash
+git clone https://github.com/xyma2003/critter.git
+cd critter
+```
+
+### 2. Create a virtual environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate        # macOS/Linux
+# .venv\Scripts\activate         # Windows
+```
+
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
-python3 main.py
 ```
 
-或双击 `启动桌面宠物.command` 文件。
+### 4. Configure API credentials
 
-## 配置
-
-复制 `.env.example` 为 `.env`，填入 ONE backend：
+```bash
+cp .env.example .env
+# Edit .env — fill in ONE backend (see .env.example comments)
+```
 
 **Option A — SiliconFlow / OpenAI-compatible（国内推荐）**：
 - `.env` 文件配置 `OPENAI_API_KEY` + `OPENAI_API_BASE` + `OPENAI_MODEL`
@@ -43,7 +61,7 @@ python3 main.py
 
 **Option B — Anthropic（海外）**：
 - `ANTHROPIC_API_KEY` 环境变量（或 `.env` 文件）
-- [Claude CLI](https://claude.ai/code) 在 PATH 中（日记生成 fallback 会调用）
+- Claude CLI 需在 PATH 中（见前提条件）
 
 `.env` 示例（SiliconFlow）：
 ```bash
@@ -53,6 +71,14 @@ OPENAI_MODEL=Qwen/Qwen3-32B
 ```
 
 > 当 `OPENAI_API_KEY` 设了，agent 和日记生成都走 SiliconFlow；否则 fallback 到 Anthropic + Claude CLI。
+
+### 5. Run
+
+```bash
+python3 main.py
+```
+
+或双击 `启动桌面宠物.command` 文件。宠物窗口会出现在桌面右下角，点击展开主面板。
 
 ## 项目结构
 
@@ -98,4 +124,4 @@ Critter/
 
 ## 依赖
 
-依赖包括：PyQt6, langgraph, langchain-anthropic, langchain-core, anthropic, requests, beautifulsoup4, lxml, Pillow, python-dotenv。
+依赖包括：PyQt6, langgraph, langchain-anthropic, langchain-openai, langchain-core, anthropic, requests, beautifulsoup4, lxml, Pillow, python-dotenv。详见 `requirements.txt`。
