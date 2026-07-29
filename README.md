@@ -14,6 +14,15 @@ macOS 桌面宠物应用。一只边牧常驻桌面右下角，点击后展开�
 - **日记**：基于当天互动记录，Claude CLI 自动生成宠物视角日记
 - **设置**：宠物名/性格/口头禅、深色/浅色主题
 
+## 前提条件
+
+- **macOS**（`utils/objc.py` 使用 ctypes 调用 libobjc 管理窗口层级）
+- **Python 3.10+**
+- **LLM API Key**（二选一）：
+  - SiliconFlow（国内推荐，[获取地址](https://cloud.siliconflow.cn/)）
+  - Anthropic（[申请地址](https://console.anthropic.com/)）
+- **[Claude CLI](https://claude.ai/code) 在 PATH 中**（日记生成 fallback 会调用，仅 Anthropic 模式需要）
+
 ## 启动
 
 ```bash
@@ -21,7 +30,11 @@ pip install -r requirements.txt
 python3 main.py
 ```
 
-需要（二选一）：
+或双击 `启动桌面宠物.command` 文件。
+
+## 配置
+
+复制 `.env.example` 为 `.env`，填入 ONE backend：
 
 **Option A — SiliconFlow / OpenAI-compatible（国内推荐）**：
 - `.env` 文件配置 `OPENAI_API_KEY` + `OPENAI_API_BASE` + `OPENAI_MODEL`
@@ -31,7 +44,6 @@ python3 main.py
 **Option B — Anthropic（海外）**：
 - `ANTHROPIC_API_KEY` 环境变量（或 `.env` 文件）
 - [Claude CLI](https://claude.ai/code) 在 PATH 中（日记生成 fallback 会调用）
-- macOS（`utils/objc.py` 使用 ctypes 调用 libobjc 管理窗口层级）
 
 `.env` 示例（SiliconFlow）：
 ```bash
