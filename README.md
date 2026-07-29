@@ -47,6 +47,7 @@ OPENAI_MODEL=Qwen/Qwen3-32B
 ```
 Critter/
 ├── main.py                    # 入口
+├── 启动桌面宠物.command          # macOS 双击启动脚本
 ├── config.py                  # Config 类 + 路径常量
 ├── core/                      # PyQt6 核心
 │   ├── pet_window.py          # PetWindow 悬浮宠物窗口
