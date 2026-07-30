@@ -819,7 +819,7 @@ class MainPanel(QWidget):
         layout.addWidget(self._diary_text, 1)
 
     def _generate_diary(self):
-        from services.diary import generate_diary
+        from services.diary import DiaryWorker
         from services.notes import create_diary
         settings = self._app_settings
         stats_snap = {
@@ -831,30 +831,26 @@ class MainPanel(QWidget):
         date_str = datetime.date.today().isoformat()
         self._diary_text.setPlainText("正在生成日记…")
 
-        def run():
+        def on_diary_ready(text):
+            self._diary_text.setPlainText(text)
+            # Persist the generated diary as a note with kind='diary'
             try:
-                text = generate_diary(
-                    stats_snap, {},
-                    settings.get('pet_name', '边牧'),
-                    settings.get('pet_personality', '活泼'),
-                    settings.get('pet_catchphrase', '汪~'),
-                    date_str,
-                )
-                if text:
-                    # Persist the generated diary as a note with kind='diary' so
-                    # it survives app restart (previously only displayed, never saved).
-                    try:
-                        create_diary(text, date_str)
-                    except Exception:
-                        pass  # persistence is best-effort; display still works
-                QTimer.singleShot(0, lambda: self._diary_text.setPlainText(
-                    text or "生成失败，请检查 Claude CLI 是否可用。"
-                ))
-            except Exception as e:
-                err_msg = f"生成失败: {e}"
-                QTimer.singleShot(0, lambda: self._diary_text.setPlainText(err_msg))
+                create_diary(text, date_str)
+            except Exception:
+                pass  # persistence is best-effort; display still works
 
-        threading.Thread(target=run, daemon=True).start()
+        self._diary_worker = DiaryWorker(
+            stats_snap, {},
+            settings.get('pet_name', '边牧'),
+            settings.get('pet_personality', '活泼'),
+            settings.get('pet_catchphrase', '汪~'),
+            date_str,
+        )
+        self._diary_worker.result_ready.connect(on_diary_ready)
+        self._diary_worker.error_occurred.connect(
+            lambda msg: self._diary_text.setPlainText(msg)
+        )
+        self._diary_worker.start()
 
     # ─── Tab 7: 设置 ────────────────────────────────────
 

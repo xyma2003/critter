@@ -10,6 +10,27 @@ import os
 import subprocess
 import datetime
 from config import CLAUDE_CLI
+from PyQt6.QtCore import QThread, pyqtSignal
+
+
+class DiaryWorker(QThread):
+    """QThread worker for generating diary without blocking the UI."""
+    result_ready = pyqtSignal(str)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, stats_snap, counts, pet_name, pet_personality, pet_catchphrase, date_str):
+        super().__init__()
+        self._args = (stats_snap, counts, pet_name, pet_personality, pet_catchphrase, date_str)
+
+    def run(self):
+        try:
+            text = generate_diary(*self._args)
+            if text:
+                self.result_ready.emit(text)
+            else:
+                self.error_occurred.emit("生成失败，请检查 Claude CLI 是否可用。")
+        except Exception as e:
+            self.error_occurred.emit(f"生成失败: {e}")
 
 
 def generate_diary(stats_snap, counts, pet_name, pet_personality, pet_catchphrase, date_str):
