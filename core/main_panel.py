@@ -26,7 +26,7 @@ from core.state_manager import (
 )
 from data.pet import PetStats, FEED_LINES, PLAY_LINES, REST_LINES, PET_LINES
 from features.base_feature import BaseFeature
-from features.news_push.news_feature import NewsFeature
+from features.news_push.news_feature import NewsFeature, NewsFetchWorker
 from features.timer.timer_feature import TimerFeature
 from services.chat_history import load_sessions, save_session
 from services.notes import load_all as load_notes, create as create_note, update as update_note, delete as delete_note
@@ -419,16 +419,14 @@ class MainPanel(QWidget):
         self._news_layout.addWidget(loading)
         self._news_layout.addStretch()
 
-        # 后台获取
-        def fetch():
-            try:
-                result = self._news_feature.execute()
-                items = result.get('data', [])
-                QTimer.singleShot(0, lambda: self._render_news_cards(items, result.get('success', False)))
-            except Exception as e:
-                err_msg = f"获取失败: {e}"
-                QTimer.singleShot(0, lambda: self._render_news_error(err_msg))
-        threading.Thread(target=fetch, daemon=True).start()
+        # 后台获取 — must use QThread + pyqtSignal, NOT threading.Thread + QTimer.singleShot
+        # (QTimer from a bg thread without event loop never fires)
+        self._news_worker = NewsFetchWorker(self._news_feature)
+        self._news_worker.result_ready.connect(
+            lambda result: self._render_news_cards(result.get('data', []), result.get('success', False))
+        )
+        self._news_worker.error_occurred.connect(self._render_news_error)
+        self._news_worker.start()
 
     def _render_news_error(self, msg: str):
         """Show an error message in the news panel when fetch fails."""

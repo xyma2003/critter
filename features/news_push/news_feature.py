@@ -4,12 +4,26 @@ from .formatter import NewsFormatter
 from PyQt6.QtCore import QThread, pyqtSignal
 
 
-class NewsFetchThread(QThread):
-    finished = pyqtSignal(list)
+class NewsFetchWorker(QThread):
+    """QThread worker for fetching news without blocking the UI.
+
+    Uses pyqtSignal to communicate results back to the main thread.
+    Never use threading.Thread + QTimer.singleShot — the timer gets
+    created in the bg thread (no event loop) and the callback never fires.
+    """
+    result_ready = pyqtSignal(dict)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, news_feature):
+        super().__init__()
+        self._news_feature = news_feature
 
     def run(self):
-        news_list = NewsFetcher.fetch_all()
-        self.finished.emit(news_list)
+        try:
+            result = self._news_feature.execute()
+            self.result_ready.emit(result)
+        except Exception as e:
+            self.error_occurred.emit(str(e))
 
 
 class NewsFeature(BaseFeature):
