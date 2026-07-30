@@ -13,6 +13,9 @@ class EventHandler:
     def handle_mouse_move(self, event):
         if event.buttons() == Qt.MouseButton.LeftButton:
             self.pet_window.move(event.globalPosition().toPoint() - self.drag_position)
+            # Sync speech bubble position if visible
+            if hasattr(self.pet_window, 'speech_bubble') and self.pet_window.speech_bubble.isVisible():
+                self.pet_window.speech_bubble.reposition_to(self.pet_window)
 
     def handle_single_click(self):
         """单击：触发交互动画"""

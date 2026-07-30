@@ -5,6 +5,7 @@ Tab 顺序：主页 | 新闻 | 宠物 | 便签 | 天气 | 日记 | 设置
 AI 路由：含触发词 → LangGraph Agent，否则 → Claude CLI 流式聊天
 """
 import datetime
+import os
 import subprocess
 import threading
 import time
@@ -65,6 +66,38 @@ class ClaudeCliThread(QThread):
         except Exception as e:
             accumulated = f"呜，出了点小问题：{e}"
         self.finished.emit(accumulated.strip())
+
+
+class OpenAIChatThread(QThread):
+    """SiliconFlow / OpenAI-compatible chat thread — used when OPENAI_API_KEY is set."""
+    finished = pyqtSignal(str)
+
+    def __init__(self, prompt: str, system: str = ""):
+        super().__init__()
+        self.prompt = prompt
+        self.system = system
+
+    def run(self):
+        try:
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=os.environ.get("OPENAI_API_KEY", ""),
+                base_url=os.environ.get("OPENAI_API_BASE", "https://api.siliconflow.cn/v1"),
+            )
+            messages = []
+            if self.system:
+                messages.append({"role": "system", "content": self.system})
+            messages.append({"role": "user", "content": self.prompt})
+            resp = client.chat.completions.create(
+                model=os.environ.get("OPENAI_MODEL", "Qwen/Qwen3-32B"),
+                messages=messages,
+                max_tokens=300,
+                temperature=0.8,
+            )
+            text = resp.choices[0].message.content.strip()
+            self.finished.emit(text or "…")
+        except Exception as e:
+            self.finished.emit(f"呜，出了点小问题：{e}")
 
 
 # ─────────────────────────────────────────────────────────
@@ -322,7 +355,10 @@ class MainPanel(QWidget):
                 + self.stats.system_prompt_hint()
             )
             self.chat_list.add_message("…")
-            self._ai_thread = ClaudeCliThread(text, system)
+            if os.environ.get("OPENAI_API_KEY"):
+                self._ai_thread = OpenAIChatThread(text, system)
+            else:
+                self._ai_thread = ClaudeCliThread(text, system)
             self._ai_thread.finished.connect(self._on_cli_done)
             self._ai_thread.start()
 
@@ -358,6 +394,10 @@ class MainPanel(QWidget):
         }
         self.chat_list.clear_messages()
         self._chat_history = []
+        # Add welcome message to new session
+        welcome = f"你好！我是你的桌面边牧，叫{self._app_settings.get('pet_name', '边牧')}~ {self._app_settings.get('pet_catchphrase', '汪~')}"
+        self.chat_list.add_message(welcome)
+        self._record_message(welcome, "pet")
 
     def _save_current_session(self, last_response: str):
         if self._current_session is None:

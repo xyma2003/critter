@@ -63,6 +63,16 @@ class SpeechBubble(QWidget):
         self._hide_timer.stop()
         self._hide_timer.start(duration_ms)
 
+    def reposition_to(self, anchor_widget: QWidget):
+        """Reposition bubble relative to anchor (used when anchor is dragged)."""
+        if not self.isVisible():
+            return
+        anchor_pos = anchor_widget.mapToGlobal(QPoint(0, 0))
+        anchor_center_x = anchor_pos.x() + anchor_widget.width() // 2
+        bubble_x = anchor_center_x - self.width() // 2
+        bubble_y = anchor_pos.y() - self.height()
+        self.move(bubble_x, bubble_y)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
