@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QTextEdit, QScrollArea,
     QFrame, QSizePolicy, QProgressBar, QMessageBox,
 )
-from PyQt6.QtGui import QFont
 
 from config import Config, CLAUDE_CLI
 from core.state_manager import (
@@ -153,7 +152,7 @@ class WeatherThread(QThread):
 # ─────────────────────────────────────────────────────────
 
 class MainPanel(QWidget):
-    NAV_W = 80
+    NAV_W = 200
 
     def __init__(self, pet_window):
         super().__init__()
@@ -215,9 +214,10 @@ class MainPanel(QWidget):
     # ─── 初始化 UI ───────────────────────────────────────
 
     def _init_ui(self):
-        self.setWindowTitle("桌面宠物")
+        self.setWindowTitle("Critter · 你的桌面伙伴")
         self.setWindowFlags(Qt.WindowType.Window)
-        self.resize(Config.MAIN_PANEL_WIDTH, Config.MAIN_PANEL_HEIGHT)
+        self.resize(1040, 760)
+        self.setMinimumSize(860, 660)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -227,13 +227,33 @@ class MainPanel(QWidget):
         self._nav = QWidget(objectName="nav_bar")
         self._nav.setFixedWidth(self.NAV_W)
         nav_layout = QVBoxLayout(self._nav)
-        nav_layout.setContentsMargins(4, 12, 4, 12)
+        nav_layout.setContentsMargins(16, 20, 16, 16)
         nav_layout.setSpacing(4)
+        nav_layout.addWidget(QLabel("critter", objectName="brand"))
+        nav_layout.addWidget(QLabel("桌面上的小伙伴", objectName="nav_caption"))
+        nav_layout.addSpacing(20)
+
+        identity = QFrame(objectName="pet_identity")
+        identity_layout = QHBoxLayout(identity)
+        identity_layout.setContentsMargins(12, 14, 12, 14)
+        identity_layout.addWidget(QLabel("🐕", objectName="pet_avatar"))
+        identity_text = QVBoxLayout()
+        self._identity_name = QLabel(objectName="pet_name")
+        self._identity_name.setTextFormat(Qt.TextFormat.PlainText)
+        self._identity_name.setText(self._app_settings.get('pet_name', '边牧'))
+        self._identity_name.setWordWrap(True)
+        identity_text.addWidget(self._identity_name)
+        self._identity_mood = QLabel(self.stats.mood_label(), objectName="subtitle")
+        self._identity_mood.setWordWrap(True)
+        identity_text.addWidget(self._identity_mood)
+        identity_layout.addLayout(identity_text, 1)
+        nav_layout.addWidget(identity)
+        nav_layout.addSpacing(12)
 
         self._stack = QStackedWidget(objectName="content_area")
 
         tabs = [
-            ("🏠", "主页",  self._build_home_tab),
+            ("◌", "聊天",  self._build_home_tab),
             ("📰", "新闻",  self._build_news_tab),
             ("🐾", "宠物",  self._build_pet_tab),
             ("📝", "便签",  self._build_notes_tab),
@@ -244,34 +264,69 @@ class MainPanel(QWidget):
 
         self._nav_btns: list[QPushButton] = []
         for emoji, label, builder in tabs:
-            btn = QPushButton(f"{emoji}\n{label}", objectName="nav_btn")
+            btn = QPushButton(f"{emoji}   {label}", objectName="nav_btn")
             btn.setCheckable(True)
-            btn.setFixedHeight(64)
-            # emoji 行大，文字行小
-            f = QFont("PingFang SC", 10)
-            btn.setFont(f)
-            nav_layout.addWidget(btn)
+            btn.setMinimumHeight(42)
             self._nav_btns.append(btn)
 
             page = QWidget()
             builder(page)
             self._stack.addWidget(page)
 
+        nav_layout.addWidget(QLabel("陪伴", objectName="nav_caption"))
+        for idx in (0, 2, 5):
+            nav_layout.addWidget(self._nav_btns[idx])
+        nav_layout.addSpacing(8)
+        nav_layout.addWidget(QLabel("日常", objectName="nav_caption"))
+        for idx in (3, 4, 1):
+            nav_layout.addWidget(self._nav_btns[idx])
         nav_layout.addStretch()
+        nav_layout.addWidget(self._nav_btns[6])
 
         for i, btn in enumerate(self._nav_btns):
             btn.clicked.connect(lambda _, idx=i: self._switch_tab(idx))
 
         self._nav_btns[0].setChecked(True)
 
-        # 分隔线
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.VLine)
-        line.setFrameShadow(QFrame.Shadow.Plain)
-
         root.addWidget(self._nav)
-        root.addWidget(line)
         root.addWidget(self._stack, 1)
+
+    def _page_header(self, title: str, description: str, action=None, padding=24):
+        header = QWidget(objectName="toolbar")
+        row = QHBoxLayout(header)
+        row.setContentsMargins(padding, 22, padding, 18)
+        text = QVBoxLayout()
+        text.setSpacing(6)
+        text.addWidget(QLabel(title, objectName="title"))
+        subtitle = QLabel(description, objectName="subtitle")
+        subtitle.setWordWrap(True)
+        text.addWidget(subtitle)
+        row.addLayout(text, 1)
+        if action is not None:
+            row.addSpacing(16)
+            row.addWidget(action)
+        return header
+
+    def _configuration_summary(self) -> tuple[str, str]:
+        """Report detected configuration only; this does not test a connection."""
+        api_present = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+        cli_present = os.path.isfile(CLAUDE_CLI) and os.access(CLAUDE_CLI, os.X_OK)
+        if api_present:
+            chat = "聊天：已检测到 API 配置，连接尚未测试。"
+        elif cli_present:
+            chat = "聊天：已找到 Claude CLI，登录状态尚未验证。"
+        else:
+            chat = "聊天：尚未配置。可以先照顾宠物、记录便签。"
+        agent_key = api_present or bool(
+            os.environ.get("ANTHROPIC_API_KEY", "").strip() or Config.ANTHROPIC_API_KEY
+        )
+        if self.agent_graph is None:
+            agent = "Agent：当前未启用或初始化未完成。"
+        elif agent_key:
+            agent = "Agent：已检测到 API 配置，连接尚未测试。"
+        else:
+            agent = "Agent：需要配置 API 凭据后使用。"
+        return chat, agent
 
     def _switch_tab(self, idx: int):
         for i, btn in enumerate(self._nav_btns):
@@ -285,17 +340,29 @@ class MainPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 工具栏
-        toolbar = QWidget(objectName="toolbar")
-        tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(12, 8, 12, 8)
-        title = QLabel("🏠 主页", objectName="title")
-        tb_layout.addWidget(title)
-        tb_layout.addStretch()
         new_chat_btn = QPushButton("+ 新对话", objectName="secondary_btn")
         new_chat_btn.clicked.connect(self._new_chat_session)
-        tb_layout.addWidget(new_chat_btn)
-        layout.addWidget(toolbar)
+        layout.addWidget(self._page_header("聊天", "说说今天，也留下一点灵感。", new_chat_btn))
+
+        intro = QFrame(objectName="intro_card")
+        intro_layout = QVBoxLayout(intro)
+        intro_layout.setContentsMargins(20, 16, 20, 16)
+        intro_layout.setSpacing(10)
+        intro_layout.addWidget(QLabel("今天，从一件小事开始", objectName="section_title"))
+        status = QLabel(self._configuration_summary()[0], objectName="status_label")
+        status.setWordWrap(True)
+        intro_layout.addWidget(status)
+        shortcuts = QHBoxLayout()
+        for label, idx in (("照顾宠物", 2), ("记录便签", 3), ("AI 配置说明", 6)):
+            button = QPushButton(label, objectName="secondary_btn")
+            button.clicked.connect(lambda _, target=idx: self._switch_tab(target))
+            shortcuts.addWidget(button)
+        shortcuts.addStretch()
+        intro_layout.addLayout(shortcuts)
+        intro_row = QHBoxLayout()
+        intro_row.setContentsMargins(24, 18, 24, 8)
+        intro_row.addWidget(intro)
+        layout.addLayout(intro_row)
 
         # 聊天列表
         self.chat_list = ChatList()
@@ -315,15 +382,15 @@ class MainPanel(QWidget):
         # 输入区
         input_frame = QWidget()
         input_layout = QHBoxLayout(input_frame)
-        input_layout.setContentsMargins(12, 8, 12, 8)
+        input_layout.setContentsMargins(24, 12, 24, 22)
         input_layout.setSpacing(8)
 
         self.input_box = QLineEdit()
-        self.input_box.setPlaceholderText("说点什么……")
+        self.input_box.setPlaceholderText("想聊些什么？按 Enter 发送")
         self.input_box.returnPressed.connect(self._on_send)
 
         send_btn = QPushButton("发送")
-        send_btn.setFixedWidth(72)
+        send_btn.setMinimumWidth(80)
         send_btn.clicked.connect(self._on_send)
 
         input_layout.addWidget(self.input_box, 1)
@@ -367,12 +434,14 @@ class MainPanel(QWidget):
         self.chat_list.replace_last_pet_message(response)
         self._record_message(response, "pet")
         self.stats.on_chat()
+        self._update_pet_stats_ui()
         self._save_current_session(response)
 
     def _on_agent_done(self, response: str):
         self.chat_list.add_message(response)
         self._record_message(response, "pet")
         self.stats.on_chat()
+        self._update_pet_stats_ui()
 
     def _record_message(self, content: str, role: str):
         self._chat_history.append({
@@ -425,15 +494,9 @@ class MainPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        toolbar = QWidget(objectName="toolbar")
-        tb = QHBoxLayout(toolbar)
-        tb.setContentsMargins(12, 8, 12, 8)
-        tb.addWidget(QLabel("📰 热点新闻", objectName="title"))
-        tb.addStretch()
         refresh_btn = QPushButton("刷新", objectName="secondary_btn")
         refresh_btn.clicked.connect(self._refresh_news)
-        tb.addWidget(refresh_btn)
-        layout.addWidget(toolbar)
+        layout.addWidget(self._page_header("热点新闻", "有空时，看看外面正在发生什么。", refresh_btn))
 
         # 滚动区域放新闻卡片
         self._news_scroll = QScrollArea()
@@ -514,7 +577,7 @@ class MainPanel(QWidget):
             link = news_item.get('link', '').strip()
             if link:
                 link_btn = QPushButton("🔗 查看原文", objectName="secondary_btn")
-                link_btn.setFixedHeight(28)
+                link_btn.setMinimumHeight(36)
                 link_btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 link_btn.clicked.connect(lambda _, url=link: subprocess.Popen(['open', url]))
                 card_layout.addWidget(link_btn)
@@ -527,10 +590,10 @@ class MainPanel(QWidget):
 
     def _build_pet_tab(self, parent: QWidget):
         layout = QVBoxLayout(parent)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(24, 0, 24, 24)
         layout.setSpacing(12)
 
-        layout.addWidget(QLabel("🐾 我的宠物", objectName="title"))
+        layout.addWidget(self._page_header("照顾宠物", "吃饱、玩耍、休息，一起过好平常的一天。", padding=0))
 
         # 状态栏
         stats_frame = QFrame(objectName="card")
@@ -588,6 +651,7 @@ class MainPanel(QWidget):
         if not hasattr(self, '_mood_label'):
             return
         self._mood_label.setText(self.stats.mood_label())
+        self._identity_mood.setText(self.stats.mood_label())
         self._hunger_bar.setValue(int(self.stats.hunger))
         self._energy_bar.setValue(int(self.stats.energy))
         self._mood_bar.setValue(int(self.stats.mood))
@@ -635,15 +699,9 @@ class MainPanel(QWidget):
         layout = QVBoxLayout(parent)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        toolbar = QWidget(objectName="toolbar")
-        tb = QHBoxLayout(toolbar)
-        tb.setContentsMargins(12, 8, 12, 8)
-        tb.addWidget(QLabel("📝 便签", objectName="title"))
-        tb.addStretch()
         new_btn = QPushButton("+ 新建", objectName="secondary_btn")
         new_btn.clicked.connect(self._new_note)
-        tb.addWidget(new_btn)
-        layout.addWidget(toolbar)
+        layout.addWidget(self._page_header("便签", "把稍纵即逝的想法，放在这里。", new_btn))
 
         # 便签列表
         self._notes_list_widget = QWidget()
@@ -666,6 +724,12 @@ class MainPanel(QWidget):
                 item.widget().deleteLater()
 
         notes = load_notes()
+        if not notes:
+            empty = QLabel("还没有便签\n\n点右上角「新建」，记下一个想法或一件小事。", objectName="subtitle")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty.setMinimumHeight(180)
+            empty.setWordWrap(True)
+            self._notes_list_layout.insertWidget(0, empty)
         for note in reversed(notes):
             card = QFrame(objectName="card")
             card_layout = QVBoxLayout(card)
@@ -677,9 +741,9 @@ class MainPanel(QWidget):
 
             btn_row = QHBoxLayout()
             edit_btn = QPushButton("编辑", objectName="secondary_btn")
-            edit_btn.setFixedWidth(50)
+            edit_btn.setMinimumWidth(76)
             del_btn = QPushButton("删除", objectName="secondary_btn")
-            del_btn.setFixedWidth(50)
+            del_btn.setMinimumWidth(76)
             note_id = note['id']
             edit_btn.clicked.connect(lambda _, nid=note_id: self._edit_note(nid))
             del_btn.clicked.connect(lambda _, nid=note_id: self._delete_note(nid))
@@ -749,12 +813,7 @@ class MainPanel(QWidget):
         layout = QVBoxLayout(parent)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        toolbar = QWidget(objectName="toolbar")
-        tb = QHBoxLayout(toolbar)
-        tb.setContentsMargins(12, 8, 12, 8)
-        tb.addWidget(QLabel("🌤 天气", objectName="title"))
-        tb.addStretch()
-        layout.addWidget(toolbar)
+        layout.addWidget(self._page_header("天气", "为出门做一点准备。查询需要联网。"))
 
         body = QHBoxLayout()
         body.setContentsMargins(12, 12, 12, 12)
@@ -762,7 +821,7 @@ class MainPanel(QWidget):
 
         # 左：城市列表
         city_frame = QFrame(objectName="card")
-        city_frame.setFixedWidth(130)
+        city_frame.setFixedWidth(180)
         city_layout = QVBoxLayout(city_frame)
         city_layout.setContentsMargins(8, 8, 8, 8)
         city_layout.setSpacing(4)
@@ -777,7 +836,7 @@ class MainPanel(QWidget):
         self._city_add_input = add_city_input
 
         # 右：天气详情
-        self._weather_detail = QLabel("← 选择或添加城市")
+        self._weather_detail = QLabel("想看看哪里的天气？\n\n在左侧输入城市并按 Enter，或选择已经添加的城市。", objectName="subtitle")
         self._weather_detail.setWordWrap(True)
         self._weather_detail.setAlignment(Qt.AlignmentFlag.AlignTop)
 
@@ -843,19 +902,13 @@ class MainPanel(QWidget):
         layout = QVBoxLayout(parent)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        toolbar = QWidget(objectName="toolbar")
-        tb = QHBoxLayout(toolbar)
-        tb.setContentsMargins(12, 8, 12, 8)
-        tb.addWidget(QLabel("📖 宠物日记", objectName="title"))
-        tb.addStretch()
         gen_btn = QPushButton("生成今日日记", objectName="secondary_btn")
         gen_btn.clicked.connect(self._generate_diary)
-        tb.addWidget(gen_btn)
-        layout.addWidget(toolbar)
+        layout.addWidget(self._page_header("宠物日记", "用伙伴的视角，写下今天。生成需要 AI 配置。", gen_btn))
 
         self._diary_text = QTextEdit()
         self._diary_text.setReadOnly(True)
-        self._diary_text.setPlaceholderText('点击\u201c生成今日日记\u201d，Claude 会以宠物视角记录今天\u2026')
+        self._diary_text.setPlaceholderText('本页显示本次生成的日记。\n\n配置 AI 后，点击右上角生成；已经保存的日记可在「便签」中回看。')
         layout.addWidget(self._diary_text, 1)
 
     def _generate_diary(self):
@@ -878,6 +931,7 @@ class MainPanel(QWidget):
                 create_diary(text, date_str)
             except Exception:
                 pass  # persistence is best-effort; display still works
+            self._refresh_notes_list()
 
         self._diary_worker = DiaryWorker(
             stats_snap, {},
@@ -896,10 +950,28 @@ class MainPanel(QWidget):
 
     def _build_settings_tab(self, parent: QWidget):
         layout = QVBoxLayout(parent)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(24, 0, 24, 24)
         layout.setSpacing(12)
 
-        layout.addWidget(QLabel("⚙️ 设置", objectName="title"))
+        layout.addWidget(self._page_header("设置", "让这个小伙伴，更像你喜欢的样子。", padding=0))
+
+        setup = QFrame(objectName="card")
+        setup_layout = QVBoxLayout(setup)
+        setup_layout.setContentsMargins(16, 14, 16, 14)
+        setup_layout.addWidget(QLabel("AI 配置", objectName="section_title"))
+        for summary in self._configuration_summary():
+            summary_label = QLabel(summary, objectName="status_label")
+            summary_label.setWordWrap(True)
+            setup_layout.addWidget(summary_label)
+        guide = QLabel(
+            "首次配置时，在项目目录将 .env.example 复制为 .env；已有 .env 时直接编辑。"
+            "按 README 填写一个后端的凭据，再重启 Critter。"
+            "这些状态只检查本机配置，不代表连接成功；宠物互动和便签无需 AI。",
+            objectName="subtitle",
+        )
+        guide.setWordWrap(True)
+        setup_layout.addWidget(guide)
+        layout.addWidget(setup)
 
         settings = self._app_settings
 
@@ -941,6 +1013,10 @@ class MainPanel(QWidget):
         dark_btn = QPushButton("🌙 深色")
         light_btn.setObjectName("secondary_btn")
         dark_btn.setObjectName("secondary_btn")
+        self._theme_buttons = {'light': light_btn, 'dark': dark_btn}
+        for mode, button in self._theme_buttons.items():
+            button.setCheckable(True)
+            button.setChecked(self._theme_mode == mode)
         light_btn.clicked.connect(lambda: self._apply_theme('light'))
         dark_btn.clicked.connect(lambda: self._apply_theme('dark'))
         theme_layout.addWidget(light_btn)
@@ -958,9 +1034,12 @@ class MainPanel(QWidget):
         self._app_settings['pet_personality'] = self._pet_personality_input.text().strip() or '活泼'
         self._app_settings['pet_catchphrase'] = self._pet_catchphrase_input.text().strip() or '汪~'
         save_settings(self._app_settings)
+        self._identity_name.setText(self._app_settings['pet_name'])
 
     def _apply_theme(self, mode: str):
         from PyQt6.QtWidgets import QApplication
         self._theme_mode = mode
         save_theme(mode)
         apply_theme(QApplication.instance(), mode)
+        for theme, button in self._theme_buttons.items():
+            button.setChecked(theme == mode)
