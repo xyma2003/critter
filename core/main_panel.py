@@ -35,6 +35,7 @@ from services.weather import fetch_weather
 from ui.chat_list import ChatList
 from ui.feature_button import FeatureButton
 from ui.theme import apply_theme
+from ui.storage_notice import StorageNotice
 from langchain_core.messages import HumanMessage
 
 import random
@@ -211,6 +212,7 @@ class MainPanel(QWidget):
         self._decay_timer.start(PetStats.DECAY_INTERVAL_MS)
 
         self._init_ui()
+        self._storage_notice.refresh()
 
     # ─── 初始化 UI ───────────────────────────────────────
 
@@ -290,7 +292,22 @@ class MainPanel(QWidget):
         self._nav_btns[0].setChecked(True)
 
         root.addWidget(self._nav)
-        root.addWidget(self._stack, 1)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        self._storage_notice = StorageNotice(content)
+        self._storage_notice.attention_required.connect(self._show_storage_problem)
+        content_layout.addWidget(self._storage_notice)
+        content_layout.addWidget(self._stack, 1)
+        root.addWidget(content, 1)
+
+    def _show_storage_problem(self):
+        # The app normally starts with only the pet visible. Never hide a
+        # persistence problem in a panel the user has not opened yet.
+        self.show()
+        self.raise_()
+        self.activateWindow()
 
     def _page_header(self, title: str, description: str, action=None, padding=24):
         header = QWidget(objectName="toolbar")
@@ -928,10 +945,7 @@ class MainPanel(QWidget):
         def on_diary_ready(text):
             self._diary_text.setPlainText(text)
             # Persist the generated diary as a note with kind='diary'
-            try:
-                create_diary(text, date_str)
-            except Exception:
-                pass  # persistence is best-effort; display still works
+            create_diary(text, date_str)
             self._refresh_notes_list()
 
         self._diary_worker = DiaryWorker(
@@ -950,7 +964,15 @@ class MainPanel(QWidget):
     # ─── Tab 7: 设置 ────────────────────────────────────
 
     def _build_settings_tab(self, parent: QWidget):
-        layout = QVBoxLayout(parent)
+        page_layout = QVBoxLayout(parent)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        self._settings_scroll = QScrollArea()
+        self._settings_scroll.setWidgetResizable(True)
+        self._settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        self._settings_scroll.setWidget(content)
+        page_layout.addWidget(self._settings_scroll)
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(24, 0, 24, 24)
         layout.setSpacing(12)
 

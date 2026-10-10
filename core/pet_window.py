@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QLabel, QMenu
+from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QMenu
 from PyQt6.QtCore import Qt, QTimer, QPoint
 from PyQt6.QtGui import QPixmap, QAction
 from config import Config, ASSETS_DIR
@@ -90,7 +90,7 @@ class PetWindow(QWidget):
         open_action = QAction("打开面板", self)
         open_action.triggered.connect(self.show_main_panel)
         quit_action = QAction("退出", self)
-        quit_action.triggered.connect(lambda: __import__('sys').exit(0))
+        quit_action.triggered.connect(QApplication.quit)
         menu.addAction(open_action)
         menu.addSeparator()
         menu.addAction(quit_action)

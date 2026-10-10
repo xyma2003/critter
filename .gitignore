@@ -17,6 +17,9 @@ weather.json
 bookmarks.json
 settings.json
 state.json
+*.corrupt-*.bak
+.state.json.*.tmp
+..desktop-pet-state.json.*.tmp
 
 # AI assistant / workflow scaffolding (internal)
 .claude/

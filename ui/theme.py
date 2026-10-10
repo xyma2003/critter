@@ -90,6 +90,12 @@ QLabel#section_title {{ font-size: 15px; font-weight: 600; }}
 QLabel#subtitle {{ font-size: 12px; color: {c['fg_muted']}; }}
 QLabel#status_label {{ font-size: 12px; color: {c['fg_dim']}; }}
 QLabel#accent {{ color: {c['accent']}; font-weight: 600; }}
+QFrame#storage_notice {{
+    background-color: {c['bg_card']};
+    border-bottom: 2px solid {c['red']};
+}}
+QLabel#storage_notice_title {{ color: {c['red']}; font-weight: 600; }}
+QLabel#storage_notice_message {{ color: {c['fg_dim']}; font-size: 12px; }}
 
 /* Inputs and actions */
 QLineEdit, QTextEdit, QPlainTextEdit {{

@@ -1,14 +1,12 @@
 import datetime
 import random
 
-from core.state_manager import _load_state, _save_state
+from core.state_manager import _load_state, save_field
 
 
 def save_last_seen():
     """记录本次关闭时间，在应用退出时调用"""
-    state = _load_state()
-    state["last_seen"] = datetime.datetime.now().isoformat()
-    _save_state(state)
+    return save_field("last_seen", datetime.datetime.now().isoformat())
 
 
 def get_greeting() -> str:
