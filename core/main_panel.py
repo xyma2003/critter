@@ -23,6 +23,7 @@ from core.state_manager import (
     load_chat_sessions, save_chat_sessions,
     load_settings, save_settings,
     load_theme, save_theme,
+    get_state_file,
 )
 from data.pet import PetStats, FEED_LINES, PLAY_LINES, REST_LINES, PET_LINES
 from features.base_feature import BaseFeature
@@ -1027,6 +1028,11 @@ class MainPanel(QWidget):
         save_btn = QPushButton("💾 保存设置")
         save_btn.clicked.connect(self._save_settings)
         layout.addWidget(save_btn)
+        self._data_path_label = QLabel(f"本地数据：{get_state_file()}\n备份前请先退出 Critter。", objectName="subtitle")
+        self._data_path_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._data_path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._data_path_label.setWordWrap(True)
+        layout.addWidget(self._data_path_label)
         layout.addStretch()
 
     def _save_settings(self):

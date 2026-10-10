@@ -16,6 +16,7 @@ chat_history.json
 weather.json
 bookmarks.json
 settings.json
+state.json
 
 # AI assistant / workflow scaffolding (internal)
 .claude/

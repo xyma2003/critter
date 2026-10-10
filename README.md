@@ -89,6 +89,39 @@ python3 -m venv .venv          # 使用 Python 3.10+；已有 .venv 时跳过此
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
+## 资源与本地数据
+
+项目目录与用户数据分开定位，不受启动时的工作目录影响：
+
+| 内容 | 位置 |
+| --- | --- |
+| 配置文件 | 当前项目目录下的 `.env`，不会搜索其他目录的同名文件 |
+| 宠物资源 | 当前项目目录下的 `assets/animations/<pet>/<state>.gif`；目前未附带 GIF，缺失时继续显示 emoji |
+| 默认用户数据 | `~/.desktop-pet-state.json`，与旧版本保持一致 |
+| 自定义用户数据 | 设置 `CRITTER_DATA_DIR` 后，使用该目录下的 `state.json` |
+
+聊天、便签和日记、宠物状态、设置等仍由同一个状态文件保存。设置页会显示本次运行实际使用的文件路径，可选中复制。移动或重新克隆项目不会改变默认数据位置，现有数据不需要迁移。
+
+需要隔离运行时，可在 `.env` 中配置 `CRITTER_DATA_DIR`，也可以在启动时传入：
+
+```bash
+CRITTER_DATA_DIR="$HOME/Library/Application Support/Critter" .venv/bin/python main.py
+```
+
+目录必须是绝对路径，也支持 `~/...`；相对路径会被明确拒绝，防止切换工作目录后误用另一份数据。父目录在首次保存时创建。启动时显式设置的 `CRITTER_DATA_DIR` 优先于 `.env`，未设置或空值沿用旧版默认位置。
+
+自定义目录不会自动导入或覆盖默认文件。若想把旧数据转过去：先退出所有 Critter 实例并备份原文件，确认目标目录没有需要保留的 `state.json`，再把备份复制过去并命名为 `state.json`。修改配置、重启后，在设置页核对路径与原有便签、设置；原文件继续保留。取消 `CRITTER_DATA_DIR` 即恢复使用默认位置。
+
+旧配置中的 OpenClaw 固定目录和未使用的头像、日志路径常量已移除；本次不会读取或搬动该目录中的文件。
+
+### 路径与旧数据兼容检查
+
+```bash
+.venv/bin/python -m unittest tests.test_paths -v
+```
+
+检查使用临时项目与合成旧数据，覆盖更换目录、中文及空格路径、配置优先级、重启读写和旧数据保留，不读取真实用户状态或调用模型。
+
 ### 启动脚本回归检查
 
 ```bash
@@ -111,7 +144,8 @@ python3 tests/test_launcher.py
 Critter/
 ├── main.py                    # 入口
 ├── 启动桌面宠物.command          # macOS 双击启动脚本
-├── config.py                  # Config 类 + 路径常量
+├── config.py                  # Config 类 + 环境配置
+├── paths.py                   # 项目资源定位 + 兼容旧状态文件的路径解析
 ├── core/                      # PyQt6 核心
 │   ├── pet_window.py          # PetWindow 悬浮宠物窗口
 │   ├── main_panel.py          # MainPanel 主面板（7 Tab）

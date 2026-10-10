@@ -7,7 +7,7 @@ from core.state_manager import save_pet_stats, load_pet_stats
 class PetStats:
     """
     三个数值各 0-100，随时间自然衰减，互动可回复。
-    数值持久化到 ~/.desktop-pet-state.json，重启后继续。
+    数值通过 state_manager 持久化，重启后继续；路径可在设置页查看。
     """
     DECAY_INTERVAL_MS = 10 * 60 * 1000   # 每 10 分钟衰减一次
     HUNGER_DECAY  = 6    # 饱食度每次 -6

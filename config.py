@@ -4,16 +4,19 @@ config.py — 合并版配置（PyQt6 + LangGraph + Critter 功能）
 import os
 import shutil
 from dotenv import load_dotenv
+from paths import PROJECT_ROOT, ASSETS_DIR, resolve_state_file
 
-load_dotenv(override=True)  # .env wins over stale shell vars
+# Preserve the existing provider-config precedence, while allowing an explicit
+# data directory to isolate a run even when the checkout has its own .env.
+_data_dir_override = os.environ.get("CRITTER_DATA_DIR")
+load_dotenv(PROJECT_ROOT / ".env", override=True)
+if _data_dir_override is not None:
+    os.environ["CRITTER_DATA_DIR"] = _data_dir_override
 
 # ── 文件路径 ──────────────────────────────────────────────
-_BASE = os.path.expanduser("~/.openclaw/workspace/desktop-pet")
-
-STATE_FILE        = os.path.expanduser("~/.desktop-pet-state.json")
-PET_AVATAR_FILE   = os.path.join(_BASE, "data", "pet_avatar.png")
-DIARY_COUNTS_FILE = os.path.join(_BASE, "diary_counts.json")
-PET_LOG_FILE      = os.path.join(_BASE, "pet_log.json")
+STATE_FILE = str(resolve_state_file(
+    _data_dir_override if _data_dir_override is not None else os.getenv("CRITTER_DATA_DIR")
+))
 # Resolve claude CLI from PATH; fall back to common homebrew path on Apple Silicon.
 CLAUDE_CLI        = shutil.which('claude') or '/opt/homebrew/bin/claude'
 
@@ -61,5 +64,3 @@ class Config:
 
     # Agent 触发关键词（包含这些词时走 LangGraph，否则走 Claude CLI）
     AGENT_TRIGGER_KEYWORDS  = ['帮我', '帮忙', '设置', '定一个', '查询', '查一下', '搜索']
-
-

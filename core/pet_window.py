@@ -1,13 +1,12 @@
 from PyQt6.QtWidgets import QWidget, QLabel, QMenu
 from PyQt6.QtCore import Qt, QTimer, QPoint
 from PyQt6.QtGui import QPixmap, QAction
-from config import Config
+from config import Config, ASSETS_DIR
 from .animation_manager import AnimationManager, AnimationState
 from .event_handler import EventHandler
 from utils.screen_utils import ScreenUtils
 from ui.speech_bubble import SpeechBubble
 import random
-import os
 
 
 class PetWindow(QWidget):
@@ -50,13 +49,10 @@ class PetWindow(QWidget):
 
     def update_animation(self, state: AnimationState):
         # 加载对应的动画资源
-        animation_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            'assets', 'animations', Config.DEFAULT_PET, f'{state.value}.gif'
-        )
+        animation_path = ASSETS_DIR / 'animations' / Config.DEFAULT_PET / f'{state.value}.gif'
 
-        if os.path.exists(animation_path):
-            pixmap = QPixmap(animation_path)
+        if animation_path.is_file():
+            pixmap = QPixmap(str(animation_path))
             self.pet_label.setPixmap(pixmap.scaled(
                 *Config.PET_SIZE,
                 Qt.AspectRatioMode.KeepAspectRatio,

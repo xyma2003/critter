@@ -72,6 +72,16 @@ class PanelTests(unittest.TestCase):
         with patch("core.main_panel.os.path.isfile", return_value=True), patch("core.main_panel.os.access", return_value=True):
             self.assertIn("登录状态尚未验证", self.panel._configuration_summary()[0])
 
+    def test_settings_displays_active_state_file_for_backup(self):
+        self.panel._switch_tab(6)
+        self.panel.resize(860, 660)
+        self.app.processEvents()
+        label = self.panel._data_path_label
+        self.assertIn(str(Path(self.temp.name) / "state.json"), label.text())
+        self.assertEqual(label.textFormat(), Qt.TextFormat.PlainText)
+        self.assertTrue(label.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.assertLessEqual(label.geometry().bottom(), label.parentWidget().height())
+
     def test_existing_and_new_bubbles_follow_both_themes_and_keep_plain_text(self):
         original = self.panel.chat_list.add_message("<b>按原文显示</b>")
         for mode in ("dark", "light"):

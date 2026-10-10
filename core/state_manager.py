@@ -1,8 +1,14 @@
 import datetime
 import json
 import os
+from config import STATE_FILE
 
-_STATE_FILE = os.path.expanduser("~/.desktop-pet-state.json")
+_STATE_FILE = STATE_FILE
+
+
+def get_state_file() -> str:
+    """Return the actual storage location for display and backups."""
+    return _STATE_FILE
 
 
 def _load_state() -> dict:
@@ -15,6 +21,7 @@ def _load_state() -> dict:
 
 def _save_state(state: dict) -> None:
     try:
+        os.makedirs(os.path.dirname(_STATE_FILE), exist_ok=True)
         with open(_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
     except Exception:
