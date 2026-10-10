@@ -1,6 +1,6 @@
 # Critter
 
-macOS 桌面宠物应用。一只边牧常驻桌面右下角，点击后展开主面板，包含 AI 对话、热点新闻、宠物互动、便签、天气、日记、设置 7 个 Tab。
+macOS 桌面宠物应用。一只边牧常驻桌面，右键选择“打开面板”进入主面板，包含 AI 对话、热点新闻、宠物互动、便签、天气、日记、设置 7 个 Tab。
 
 **Tech stack**: Python 3.11 + PyQt6 (UI) + LangGraph (agent orchestration) + langchain-anthropic (LLM) + requests/BeautifulSoup (news scraping)
 
@@ -75,10 +75,27 @@ OPENAI_MODEL=Qwen/Qwen3-32B
 ### 5. Run
 
 ```bash
-python3 main.py
+.venv/bin/python main.py
 ```
 
-或双击 `启动桌面宠物.command` 文件。宠物窗口会出现在桌面右下角，点击展开主面板。
+也可以在 Finder 中双击 `启动桌面宠物.command`。脚本会自动进入它所在的项目目录，并使用该目录下的 `.venv/bin/python`；项目可以放在包含空格或中文的路径中，双击前无需手动激活虚拟环境。宠物窗口会显示在桌面上；右键点击宠物并选择“打开面板”，即可进入主面板。
+
+首次使用需完成上面的依赖安装；使用 AI 功能时再按上文配置凭据。启动脚本会检查 Python 版本和依赖是否存在；环境不完整或程序异常退出时，终端会显示错误和下一步操作，按回车即可关闭。它不会自动安装依赖或更改配置。
+
+如果提示缺少虚拟环境或依赖，在项目目录运行：
+
+```bash
+python3 -m venv .venv          # 使用 Python 3.10+；已有 .venv 时跳过此行
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+### 启动脚本回归检查
+
+```bash
+python3 tests/test_launcher.py
+```
+
+这组检查使用临时目录和模拟解释器，验证路径、环境选择及失败提示，不会启动桌宠、访问网络或调用模型。
 
 ## 项目结构
 
