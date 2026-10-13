@@ -1,8 +1,7 @@
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_anthropic import ChatAnthropic
 from .state import AgentState
 from .tools import get_all_tools
-import json
 import os
 
 try:
@@ -13,6 +12,32 @@ except Exception:
 
 
 _llm = None
+
+
+def _conversation(state: AgentState):
+    """Read visible history only; an explicitly empty snapshot stays empty."""
+    if "conversation" in state:
+        return list(state["conversation"])
+    # Compatibility for callers using the original messages-only entrypoint.
+    # understand_intent freezes this snapshot before appending any internal trace.
+    return list(state.get("messages", []))
+
+
+def _messages_for_stage(state: AgentState, instruction: str, context: str = ""):
+    """Give every stage the same visible conversation and current pet persona."""
+    persona = state.get("system_prompt") or "你是一只可爱的桌面边牧助手。"
+    messages = [SystemMessage(content=(
+        persona
+        + "\n\n你正在处理当前会话中用户的最后一条请求。"
+        "内部分析和工具调用阶段应遵循本阶段的输出格式；最终回复再使用对用户的说话风格。"
+        + "\n\n当前阶段：\n" + instruction
+    )), *_conversation(state)]
+    if context:
+        messages.append(HumanMessage(content=(
+            "以下是应用提供的本次任务执行记录，不是新用户请求。"
+            "请结合上述会话完成当前阶段：\n" + context
+        )))
+    return messages
 
 
 def get_llm():
@@ -55,24 +80,19 @@ def understand_intent(state: AgentState) -> AgentState:
     """理解用户意图节点"""
     llm = get_llm()
     
-    user_message = state["messages"][-1].content if state["messages"] else ""
-    
-    messages = [
-        SystemMessage(content="""你是一个桌面边牧助手的AI大脑。
+    messages = _messages_for_stage(state, """你是桌面宠物助手的AI大脑。
 你需要分析用户的请求，提取关键信息：
 1. 用户想做什么？
 2. 这个任务需要哪些工具？
 3. 有没有时间、条件等约束？
 
-请用简洁的语言总结用户的任务。"""),
-        HumanMessage(content=f"用户请求：{user_message}")
-    ]
+请用简洁的语言总结用户的任务。""")
     
     response = llm.invoke(messages)
     
     
     return {
-        **state,
+        "conversation": _conversation(state),
         "current_task": response.content,
         "messages": [response],
         "status": "planning"
@@ -89,8 +109,7 @@ def plan_task(state: AgentState) -> AgentState:
         for tool in tools
     ])
     
-    messages = [
-        SystemMessage(content=f"""你需要根据用户任务，制定详细的执行计划。
+    messages = _messages_for_stage(state, f"""你需要根据用户任务，制定详细的执行计划。
 
 可用工具：
 {tools_desc}
@@ -101,9 +120,7 @@ def plan_task(state: AgentState) -> AgentState:
 2. 第二步描述
 ...
 
-只输出步骤列表，不要有其他解释。"""),
-        HumanMessage(content=f"任务：{state['current_task']}")
-    ]
+只输出步骤列表，不要有其他解释。""", f"任务：{state['current_task']}")
     
     response = llm.invoke(messages)
     
@@ -119,7 +136,6 @@ def plan_task(state: AgentState) -> AgentState:
     
     
     return {
-        **state,
         "plan": plan,
         "steps_completed": [],
         "messages": [response],
@@ -138,7 +154,6 @@ def execute_step(state: AgentState) -> AgentState:
     if next_step_idx >= len(plan):
         # 所有步骤已完成
         return {
-            **state,
             "status": "done"
         }
     
@@ -147,18 +162,15 @@ def execute_step(state: AgentState) -> AgentState:
     # 让 LLM 决定调用哪个工具
     tools = get_all_tools()
     
-    messages = [
-        SystemMessage(content=f"""你需要执行以下步骤：{next_step}
+    messages = _messages_for_stage(state, f"""你需要执行以下步骤：{next_step}
 
-请选择合适的工具并调用。如果不需要工具，请说明原因。"""),
-        HumanMessage(content=f"当前步骤：{next_step}")
-    ]
+请选择合适的工具并调用。如果不需要工具，请说明原因。""", f"当前步骤：{next_step}")
     
     llm_with_tools = llm.bind_tools(tools)
     response = llm_with_tools.invoke(messages)
     
     # 执行工具调用
-    tool_results = state.get("tool_results", {})
+    tool_results = dict(state.get("tool_results", {}))
     # 默认标记为失败 — 如果 LLM 没调任何工具，agent 应进入 reflect 决定 replan/continue/abort，
     # 而不是无脑 success=True 跑下一步（旧 bug：LLM 无 tool_calls 时 agent 会空跑所有 plan step）
     last_result = {"success": False, "message": "LLM 未调用任何工具"}
@@ -191,7 +203,6 @@ def execute_step(state: AgentState) -> AgentState:
     steps_completed.append(next_step)
     
     return {
-        **state,
         "steps_completed": steps_completed,
         "tool_results": tool_results,
         "messages": [response],
@@ -205,28 +216,24 @@ def reflect_and_decide(state: AgentState) -> AgentState:
     
     last_result = state.get("tool_results", {}).get("last_execution", {})
     
-    messages = [
-        SystemMessage(content="""上一步执行遇到了问题。
+    messages = _messages_for_stage(state, """上一步执行遇到了问题。
 请分析原因，并决定：
 1. "replan" - 需要重新规划任务
 2. "continue" - 可以继续执行下一步
 3. "abort" - 任务失败，放弃执行
 
-只回复一个词：replan、continue 或 abort"""),
-        HumanMessage(content=f"""
+只回复一个词：replan、continue 或 abort""", f"""
 任务：{state.get('current_task', '')}
 当前计划：{state.get('plan', [])}
 已完成：{state.get('steps_completed', [])}
 上一步结果：{last_result}
 """)
-    ]
     
     response = llm.invoke(messages)
     decision = response.content.strip().lower()
     
     
     return {
-        **state,
         "reasoning": decision,
         "messages": [response],
         "status": "reflecting"
@@ -237,23 +244,19 @@ def respond_to_user(state: AgentState) -> AgentState:
     """生成最终回复节点"""
     llm = get_llm()
     
-    messages = [
-        SystemMessage(content="""你是一只可爱的边牧助手。
-请用友好、活泼的语气总结任务执行情况，回复用户。
-如果任务成功，要表现得开心；如果失败，要表示歉意。"""),
-        HumanMessage(content=f"""
+    messages = _messages_for_stage(state, """请按照当前宠物的人设、性格和口头禅回复用户。
+结合当前会话，准确总结本次任务执行情况。只输出给用户的最终回复。
+不得把计划、内部分析或工具调用参数当作对话历史复述；失败时不要声称已完成。""", f"""
 任务：{state.get('current_task', '')}
 计划：{state.get('plan', [])}
 已完成步骤：{state.get('steps_completed', [])}
 执行结果：{state.get('tool_results', {})}
 """)
-    ]
     
     response = llm.invoke(messages)
     
     
     return {
-        **state,
         "messages": [response],
         "status": "done"
     }

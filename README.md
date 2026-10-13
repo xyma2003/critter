@@ -6,7 +6,7 @@ macOS 桌面宠物应用。一只边牧常驻桌面，右键选择“打开面�
 
 ## 功能（7 Tab）
 
-- **聊天（AI 对话）**：气泡聊天。关键词触发 LangGraph agent（理解→规划→执行→反思→回复），普通对话按配置使用 OpenAI-compatible API 或 Claude CLI。已有会话会保存，但会话选择入口与连续上下文仍待完善
+- **聊天（AI 对话）**：气泡聊天，支持连续上下文与自定义宠物人设。关键词触发 LangGraph agent（理解→规划→执行→反思→回复），普通对话按配置使用 OpenAI-compatible API 或 Claude CLI。会话会保存，历史会话选择入口仍待完善
 - **热点新闻**：抓取百度热搜 / 今日头条热榜，英文标题自动翻译，书签/稍后再看
 - **宠物互动**：心情 / 饱食 / 精力三维状态，喂食、逗宠、休息
 - **便签**：轻量便签，标题 + 内容
@@ -88,6 +88,26 @@ OPENAI_MODEL=Qwen/Qwen3-32B
 python3 -m venv .venv          # 使用 Python 3.10+；已有 .venv 时跳过此行
 .venv/bin/python -m pip install -r requirements.txt
 ```
+
+## 连续聊天与人设
+
+普通 API 聊天、Claude CLI 和 LangGraph Agent 都使用发送时生成的同一份当前会话快照。普通对话与 Agent 可以接续聊天；在设置页保存宠物名字、性格、口头禅后，下一次发送即使用新的人设和当时的宠物状态，已发出的请求不受后续设置修改影响。CLI 会明确传入人设和对话记录，不复用 CLI 的历史 session。
+
+对话快照最多包含最近 **20 条消息、12,000 个 Unicode 字符**的连续后缀，按整条消息保留，并移除开头没有对应用户问题的回复。这里统计字符，**不是模型 token**；系统人设及 Agent 当前阶段的执行信息另算。当前输入超过字符上限时会提示缩短，原文保留在输入框中，不会截断后发送。
+
+欢迎语、等待占位符和本版本产生的错误提示不作为模型对话上下文。Agent 的计划、内部分析和工具调用记录与聊天历史分开，仅最终回复写入用户对话；执行报错仍会显示，但不作为下一轮模型上下文。
+
+点击“+ 新对话”会开始独立的会话。旧请求稍后返回时，不会覆盖新气泡或写入新会话；切换会话不会取消已经启动的任务。历史会话选择入口（C07）和同一会话的忙碌状态、并发发送控制（C10）仍待完善；目前请等到回复完成后再发送下一条，避免并发回复按完成先后写入历史。
+
+### 离线聊天回归检查
+
+安装项目依赖后运行：
+
+```bash
+QT_QPA_PLATFORM=offscreen PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m unittest tests.test_chat_context tests.test_agent_context tests.test_chat_flow -v
+```
+
+检查覆盖三条请求链路的角色和人设、上下文裁剪、真实 LangGraph 多节点执行、Qt 聊天交互与旧回包隔离，使用临时状态、假模型和假工具，不访问真实用户数据或调用模型/CLI。CI 另在 Python 3.10 和 3.12 验证纯上下文构造，在 Python 3.12 执行上述离线聊天检查。通过这些检查表示请求内容和应用流程符合预期，不代表真实模型回复效果、服务连接或 CLI 登录已经验证。
 
 ## 资源与本地数据
 
@@ -190,6 +210,7 @@ Critter/
 │   ├── weather/               # wttr.in 天气 + 缓存
 │   ├── diary/                 # Claude CLI 日记生成
 │   ├── notes/                 # 便签 CRUD
+│   ├── chat_context.py        # 各聊天后端共享的上下文与人设快照
 │   └── chat_history/          # 聊天 session 持久化
 ├── data/pet/__init__.py       # PetStats 状态管理
 ├── ui/                        # PyQt6 复用组件
@@ -202,7 +223,7 @@ Critter/
 │   ├── objc.py                # macOS Objective-C 桥
 │   ├── screen_utils.py        # 屏幕尺寸
 │   └── translator.py          # 翻译占位
-└── tests/                     # pytest 天气服务单测
+└── tests/                     # 存储、启动、聊天及离屏界面回归检查
 ```
 
 ## 依赖

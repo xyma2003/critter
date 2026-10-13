@@ -1,4 +1,4 @@
-name: Local data and launcher
+name: Local data, launcher and chat
 
 on:
   push:
@@ -20,5 +20,22 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install configuration reader
         run: python -m pip install 'python-dotenv>=1,<2'
-      - name: Verify isolated paths, storage, notes and launcher
-        run: python -m unittest tests.test_paths tests.test_state_manager tests.test_notes tests.test_launcher -v
+      - name: Verify isolated paths, storage, notes, launcher and chat context
+        run: python -m unittest tests.test_paths tests.test_state_manager tests.test_notes tests.test_launcher tests.test_chat_context -v
+
+  offline-chat:
+    runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHON_DOTENV_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Qt runtime library
+        run: sudo apt-get update && sudo apt-get install -y libegl1
+      - name: Install application and test dependencies
+        run: python -m pip install -r requirements.txt 'pytest>=8,<10'
+      - name: Verify offline chat adapters, graph and Qt flow
+        run: python -m pytest tests/test_chat_context.py tests/test_agent_context.py tests/test_chat_flow.py -q

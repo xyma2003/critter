@@ -2,7 +2,7 @@
 core/main_panel.py — 合并版主面板（PyQt6 + 7 Tab）
 
 Tab 顺序：主页 | 新闻 | 宠物 | 便签 | 天气 | 日记 | 设置
-AI 路由：含触发词 → LangGraph Agent，否则 → Claude CLI 流式聊天
+AI 路由：含触发词 → LangGraph Agent，否则 → OpenAI-compatible API 或 Claude CLI
 """
 import datetime
 import os
@@ -30,53 +30,56 @@ from features.base_feature import BaseFeature
 from features.news_push.news_feature import NewsFeature, NewsFetchWorker
 from features.timer.timer_feature import TimerFeature
 from services.chat_history import load_sessions, save_session
+from services.chat_context import ChatRequest, build_chat_request, api_messages, cli_prompt
 from services.notes import load_all as load_notes, create as create_note, update as update_note, delete as delete_note
 from services.weather import fetch_weather
 from ui.chat_list import ChatList
 from ui.feature_button import FeatureButton
 from ui.theme import apply_theme
 from ui.storage_notice import StorageNotice
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 
 import random
 
 
 # ─────────────────────────────────────────────────────────
-#  Claude CLI 流式聊天线程
+#  Claude CLI 聊天线程
 # ─────────────────────────────────────────────────────────
 
 class ClaudeCliThread(QThread):
-    chunk_received = pyqtSignal(str)
-    finished = pyqtSignal(str)
+    reply_ready = pyqtSignal(str, bool)
 
-    def __init__(self, prompt: str, system: str = ""):
+    def __init__(self, request: ChatRequest):
         super().__init__()
-        self.prompt = prompt
-        self.system = system
+        self.request = request
 
     def run(self):
-        accumulated = ""
         try:
-            cmd = [CLAUDE_CLI, '--print', self.prompt]
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                    stderr=subprocess.DEVNULL, text=True)
-            for line in proc.stdout:
-                accumulated += line
-                self.chunk_received.emit(line)
-            proc.wait()
+            system = self.request.system + (
+                "\n输入是按时间排列的 JSON 对话记录。role=user 是用户，"
+                "role=assistant 是你先前的回复。请结合记录，只回复最后一条 user 消息。"
+            )
+            cmd = [CLAUDE_CLI, '--print', '--system-prompt', system,
+                   '--no-session-persistence', '--tools', '', '--strict-mcp-config']
+            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=True)
+            output, error = proc.communicate(input=cli_prompt(self.request))
+            if proc.returncode:
+                raise RuntimeError(f"CLI 退出码 {proc.returncode}：{error.strip()[:500]}")
+            if not output.strip():
+                raise RuntimeError("CLI 没有返回回复")
+            self.reply_ready.emit(output.strip(), True)
         except Exception as e:
-            accumulated = f"呜，出了点小问题：{e}"
-        self.finished.emit(accumulated.strip())
+            self.reply_ready.emit(f"呜，出了点小问题：{e}", False)
 
 
 class OpenAIChatThread(QThread):
     """SiliconFlow / OpenAI-compatible chat thread — used when OPENAI_API_KEY is set."""
-    finished = pyqtSignal(str)
+    reply_ready = pyqtSignal(str, bool)
 
-    def __init__(self, prompt: str, system: str = ""):
+    def __init__(self, request: ChatRequest):
         super().__init__()
-        self.prompt = prompt
-        self.system = system
+        self.request = request
 
     def run(self):
         try:
@@ -85,20 +88,18 @@ class OpenAIChatThread(QThread):
                 api_key=os.environ.get("OPENAI_API_KEY", ""),
                 base_url=os.environ.get("OPENAI_API_BASE", "https://api.siliconflow.cn/v1"),
             )
-            messages = []
-            if self.system:
-                messages.append({"role": "system", "content": self.system})
-            messages.append({"role": "user", "content": self.prompt})
             resp = client.chat.completions.create(
                 model=os.environ.get("OPENAI_MODEL", "Qwen/Qwen3-32B"),
-                messages=messages,
+                messages=api_messages(self.request),
                 max_tokens=300,
                 temperature=0.8,
             )
-            text = resp.choices[0].message.content.strip()
-            self.finished.emit(text or "…")
+            text = (resp.choices[0].message.content or "").strip()
+            if not text:
+                raise RuntimeError("模型没有返回回复")
+            self.reply_ready.emit(text, True)
         except Exception as e:
-            self.finished.emit(f"呜，出了点小问题：{e}")
+            self.reply_ready.emit(f"呜，出了点小问题：{e}", False)
 
 
 # ─────────────────────────────────────────────────────────
@@ -106,17 +107,22 @@ class OpenAIChatThread(QThread):
 # ─────────────────────────────────────────────────────────
 
 class AgentThread(QThread):
-    finished = pyqtSignal(str)
+    reply_ready = pyqtSignal(str, bool)
 
-    def __init__(self, agent_graph, user_input: str):
+    def __init__(self, agent_graph, request: ChatRequest):
         super().__init__()
         self.agent_graph = agent_graph
-        self.user_input = user_input
+        self.request = request
 
     def run(self):
         try:
             initial_state = {
-                "messages": [HumanMessage(content=self.user_input)],
+                "messages": [],
+                "conversation": [
+                    (HumanMessage if message.role == "user" else AIMessage)(content=message.content)
+                    for message in self.request.messages
+                ],
+                "system_prompt": self.request.system,
                 "current_task": "",
                 "plan": [],
                 "steps_completed": [],
@@ -127,9 +133,9 @@ class AgentThread(QThread):
             }
             result = self.agent_graph.invoke(initial_state)
             final = result["messages"][-1].content if result["messages"] else "执行完成"
-            self.finished.emit(final)
+            self.reply_ready.emit(final, True)
         except Exception as e:
-            self.finished.emit(f"抱歉，执行出错：{e}")
+            self.reply_ready.emit(f"抱歉，执行出错：{e}", False)
 
 
 # ─────────────────────────────────────────────────────────
@@ -169,12 +175,16 @@ class MainPanel(QWidget):
 
         # 聊天 session
         self._sessions = load_sessions()
+        self._last_session_id = max(
+            (s['id'] for s in self._sessions if isinstance(s.get('id'), int)), default=0)
         self._current_session: dict | None = None
         self._chat_history: list = []
+        self._chat_generation = 0
 
         # AI
         self.agent_graph = None
         self._ai_thread = None
+        self._chat_threads = set()
         if Config.ENABLE_AI_AGENT:
             try:
                 from agent import create_agent_graph
@@ -395,7 +405,7 @@ class MainPanel(QWidget):
         else:
             welcome = f"你好！我是你的桌面边牧，叫{self._app_settings.get('pet_name', '边牧')}~ {self._app_settings.get('pet_catchphrase', '汪~')}"
             self.chat_list.add_message(welcome)
-            self._record_message(welcome, "pet")
+            self._record_message(welcome, "pet", include_in_context=False)
 
         # 输入区
         input_frame = QWidget()
@@ -419,53 +429,75 @@ class MainPanel(QWidget):
         text = self.input_box.text().strip()
         if not text:
             return
+        try:
+            request = build_chat_request(
+                [*self._chat_history, {"role": "user", "content": text}],
+                self._app_settings, self.stats.system_prompt_hint())
+        except ValueError as error:
+            QMessageBox.information(self, "暂时无法发送", str(error))
+            return
         self.input_box.clear()
         self.chat_list.add_message(text, is_user=True)
         self._record_message(text, "user")
+        self._save_current_session(text)
 
         # AI 路由
         if self.agent_graph and any(kw in text for kw in Config.AGENT_TRIGGER_KEYWORDS):
-            self.chat_list.add_message("让我想想… 🤔")
-            self._ai_thread = AgentThread(self.agent_graph, text)
-            self._ai_thread.finished.connect(self._on_agent_done)
-            self._ai_thread.start()
+            placeholder = self.chat_list.add_message("让我想想… 🤔")
+            thread = AgentThread(self.agent_graph, request)
         else:
-            settings = self._app_settings
-            catchphrase = settings.get('pet_catchphrase', '汪~')
-            system = (
-                f"你是一只可爱的桌面宠物边牧，名字叫{settings.get('pet_name','边牧')}，"
-                f"性格{settings.get('pet_personality','活泼')}，"
-                f"口头禅是\"{catchphrase}\"，"
-                "说话简短可爱，回复 2-3 句，不要用 Markdown。"
-                + self.stats.system_prompt_hint()
-            )
-            self.chat_list.add_message("…")
+            placeholder = self.chat_list.add_message("…")
             if os.environ.get("OPENAI_API_KEY"):
-                self._ai_thread = OpenAIChatThread(text, system)
+                thread = OpenAIChatThread(request)
             else:
-                self._ai_thread = ClaudeCliThread(text, system)
-            self._ai_thread.finished.connect(self._on_cli_done)
-            self._ai_thread.start()
+                thread = ClaudeCliThread(request)
+        generation = self._chat_generation
+        self._ai_thread = thread
+        # Switching conversations must not destroy an in-flight QThread. Keep
+        # it alive until Qt's actual finished signal, separate from reply_ready.
+        self._chat_threads.add(thread)
+        thread.reply_ready.connect(
+            lambda response, success, g=generation, bubble=placeholder:
+                self._receive_chat_reply(g, bubble, response, success),
+            Qt.ConnectionType.QueuedConnection)
+        thread.finished.connect(lambda worker=thread: self._release_chat_thread(worker))
+        thread.start()
+
+    def _release_chat_thread(self, thread):
+        self._chat_threads.discard(thread)
+        if self._ai_thread is thread:
+            self._ai_thread = None
+        thread.deleteLater()
+
+    def _receive_chat_reply(self, generation, placeholder, response, success):
+        if generation != self._chat_generation:
+            return
+        placeholder.update_text(response)
+        self.chat_list._scroll_to_bottom()
+        self._record_reply(response, success)
+
+    def _record_reply(self, response, success=True):
+        self._record_message(response, "pet", include_in_context=success)
+        if success:
+            self.stats.on_chat()
+            self._update_pet_stats_ui()
+        self._save_current_session(response)
 
     def _on_cli_done(self, response: str):
         # 替换占位 "…"
         self.chat_list.replace_last_pet_message(response)
-        self._record_message(response, "pet")
-        self.stats.on_chat()
-        self._update_pet_stats_ui()
-        self._save_current_session(response)
+        self._record_reply(response)
 
     def _on_agent_done(self, response: str):
-        self.chat_list.add_message(response)
-        self._record_message(response, "pet")
-        self.stats.on_chat()
-        self._update_pet_stats_ui()
+        self.chat_list.replace_last_pet_message(response)
+        self._record_reply(response)
 
-    def _record_message(self, content: str, role: str):
+    def _record_message(self, content: str, role: str, include_in_context=True):
         self._chat_history.append({
             "role": role,
             "content": content,
             "ts": datetime.datetime.now().isoformat(),
+            "include_in_context": include_in_context,
         })
         if len(self._chat_history) > 200:
             self._chat_history = self._chat_history[-200:]
@@ -474,26 +506,23 @@ class MainPanel(QWidget):
     def _new_chat_session(self):
         if self._current_session and self._current_session.get('bubbles'):
             save_session(self._current_session)
-        self._current_session = {
-            'id': int(time.time() * 1000),
-            'title': '',
-            'bubbles': [],
-        }
+        self._chat_generation += 1
+        self._current_session = self._empty_chat_session()
         self.chat_list.clear_messages()
         self._chat_history = []
         # Add welcome message to new session
         welcome = f"你好！我是你的桌面边牧，叫{self._app_settings.get('pet_name', '边牧')}~ {self._app_settings.get('pet_catchphrase', '汪~')}"
         self.chat_list.add_message(welcome)
-        self._record_message(welcome, "pet")
+        self._record_message(welcome, "pet", include_in_context=False)
+
+    def _empty_chat_session(self):
+        self._last_session_id = max(int(time.time() * 1000), self._last_session_id + 1)
+        return {'id': self._last_session_id, 'title': '', 'bubbles': []}
 
     def _save_current_session(self, last_response: str):
         if self._current_session is None:
             # Lazily create a session so the first chat (without clicking "+ 新对话") persists
-            self._current_session = {
-                'id': int(time.time() * 1000),
-                'title': '',
-                'bubbles': [],
-            }
+            self._current_session = self._empty_chat_session()
         if not self._current_session.get('title') and self._chat_history:
             for msg in self._chat_history:
                 if msg['role'] == 'user':

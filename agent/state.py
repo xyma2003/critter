@@ -6,8 +6,14 @@ import operator
 class AgentState(TypedDict):
     """LangGraph Agent 的状态定义"""
 
-    # 对话历史
+    # 当前请求的内部执行记录。每个节点只追加自己的新响应。
     messages: Annotated[Sequence[BaseMessage], operator.add]
+
+    # 用户可见的当前会话快照，与内部计划/工具调用记录分开。
+    conversation: Sequence[BaseMessage]
+
+    # 发送请求时的宠物人设和状态。
+    system_prompt: str
 
     # 当前任务描述
     current_task: str
