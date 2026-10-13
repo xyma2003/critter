@@ -784,6 +784,11 @@ class MainPanel(QWidget):
         from PyQt6.QtWidgets import QDialog, QDialogButtonBox
         notes = load_notes()
         note = next((n for n in notes if n['id'] == note_id), None)
+        if note_id is not None and note is None:
+            # A repaired duplicate ID or a removed note must never turn an
+            # edit request into creating an unrelated new note.
+            self._refresh_notes_list()
+            return
 
         dlg = QDialog(self)
         dlg.setWindowTitle("编辑便签" if note else "新建便签")

@@ -128,6 +128,16 @@ CRITTER_DATA_DIR="$HOME/Library/Application Support/Critter" .venv/bin/python ma
 .venv/bin/python -m unittest tests.test_state_manager tests.test_application tests.test_storage_notice -v
 ```
 
+### 便签标识与旧数据兼容
+
+新便签和日记使用独立的 UUID 标识，更新时间仍保留时间戳。同一秒创建多条记录也可以分别编辑、删除。原本唯一的旧整数 ID 保持不变；首次读取发现重复 ID 时，仅为重复组内各条记录重新分配标识，内容、顺序、日期及其他字段不变。旧的歧义 ID 不再指向其中任何一条，界面会使用修复后的标识。
+
+标识修复沿用上述安全保存机制：写入失败时保留在当前会话，并显示未保存提醒；重试成功后，重启仍使用同一组标识。
+
+```bash
+.venv/bin/python -m unittest tests.test_notes tests.test_notes_panel -v
+```
+
 ### 路径与旧数据兼容检查
 
 ```bash

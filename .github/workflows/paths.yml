@@ -20,5 +20,5 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install configuration reader
         run: python -m pip install 'python-dotenv>=1,<2'
-      - name: Verify isolated paths, storage failures and launcher
-        run: python -m unittest tests.test_paths tests.test_state_manager tests.test_launcher -v
+      - name: Verify isolated paths, storage, notes and launcher
+        run: python -m unittest tests.test_paths tests.test_state_manager tests.test_notes tests.test_launcher -v
