@@ -23,6 +23,7 @@ from core.state_manager import (
     load_chat_sessions, save_chat_sessions,
     load_settings, save_settings,
     load_theme, save_theme,
+    load_pet_interaction_counts,
     get_state_file,
 )
 from data.pet import PetStats, FEED_LINES, PLAY_LINES, REST_LINES, PET_LINES
@@ -185,6 +186,7 @@ class MainPanel(QWidget):
         self.agent_graph = None
         self._ai_thread = None
         self._chat_threads = set()
+        self._diary_worker = None
         if Config.ENABLE_AI_AGENT:
             try:
                 from agent import create_agent_graph
@@ -360,6 +362,8 @@ class MainPanel(QWidget):
         for i, btn in enumerate(self._nav_btns):
             btn.setChecked(i == idx)
         self._stack.setCurrentIndex(idx)
+        if idx == 5:
+            self._refresh_diary_evidence()
 
     # ─── Tab 1: 主页（聊天）────────────────────────────
 
@@ -706,6 +710,7 @@ class MainPanel(QWidget):
     def _log_pet(self, text: str):
         ts = datetime.datetime.now().strftime("%H:%M")
         self._pet_log.append(f"[{ts}] {text}")
+        self._refresh_diary_evidence()
 
     def _pet_feed(self):
         lines = FEED_LINES['starving'] if self.stats.hunger < 30 else (
@@ -954,16 +959,53 @@ class MainPanel(QWidget):
         layout = QVBoxLayout(parent)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        gen_btn = QPushButton("生成今日日记", objectName="secondary_btn")
-        gen_btn.clicked.connect(self._generate_diary)
-        layout.addWidget(self._page_header("宠物日记", "用伙伴的视角，写下今天。生成需要 AI 配置。", gen_btn))
+        self._diary_generate_btn = QPushButton("生成今日日记", objectName="secondary_btn")
+        self._diary_generate_btn.clicked.connect(self._generate_diary)
+        layout.addWidget(self._page_header("宠物日记", "用伙伴的视角，写下今天。生成需要 AI 配置。", self._diary_generate_btn))
+
+        self._diary_evidence_label = QLabel(objectName="subtitle")
+        self._diary_evidence_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._diary_evidence_label.setWordWrap(True)
+        self._diary_evidence_label.setContentsMargins(24, 12, 24, 12)
+        layout.addWidget(self._diary_evidence_label)
+        self._refresh_diary_evidence()
+
+        self._diary_source_label = QLabel(objectName="subtitle")
+        self._diary_source_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._diary_source_label.setWordWrap(True)
+        self._diary_source_label.setContentsMargins(24, 0, 24, 8)
+        layout.addWidget(self._diary_source_label)
+
+        self._diary_date_timer = QTimer(self)
+        self._diary_date_timer.setInterval(30_000)
+        self._diary_date_timer.timeout.connect(
+            lambda: self._refresh_diary_evidence() if self._stack.currentIndex() == 5 else None)
+        self._diary_date_timer.start()
 
         self._diary_text = QTextEdit()
         self._diary_text.setReadOnly(True)
         self._diary_text.setPlaceholderText('本页显示本次生成的日记。\n\n配置 AI 后，点击右上角生成；已经保存的日记可在「便签」中回看。')
         layout.addWidget(self._diary_text, 1)
 
+    @staticmethod
+    def _diary_counts_text(counts):
+        return " · ".join(f"{label} {counts.get(kind, 0)} 次" for kind, label in (
+            ("feed", "喂食"), ("play", "玩耍"), ("pet", "抚摸"), ("rest", "休息")))
+
+    def _refresh_diary_evidence(self, date_str=None, counts=None):
+        date_str = date_str or datetime.date.today().isoformat()
+        if counts is None:
+            counts = load_pet_interaction_counts(date_str)
+        summary = self._diary_counts_text(counts)
+        explanation = "仅统计已记录的四类互动；旧版未保存的记录无法补回。"
+        if not any(counts.values()):
+            explanation = "当天未记录到这四类互动，不代表没有发生；不会补造旧记录。"
+        self._diary_evidence_label.setText(f"{date_str} 已记录：{summary}\n{explanation}")
+        return counts
+
     def _generate_diary(self):
+        if self._diary_worker is not None:
+            return
         from services.diary import DiaryWorker
         from services.notes import create_diary
         settings = self._app_settings
@@ -974,7 +1016,11 @@ class MainPanel(QWidget):
             'mood_label': self.stats.mood_label(),
         }
         date_str = datetime.date.today().isoformat()
+        counts = self._refresh_diary_evidence(date_str)
+        self._diary_source_label.setText(
+            f"本次生成依据：{date_str} · {self._diary_counts_text(counts)}")
         self._diary_text.setPlainText("正在生成日记…")
+        self._diary_generate_btn.setEnabled(False)
 
         def on_diary_ready(text):
             self._diary_text.setPlainText(text)
@@ -983,17 +1029,25 @@ class MainPanel(QWidget):
             self._refresh_notes_list()
 
         self._diary_worker = DiaryWorker(
-            stats_snap, {},
+            stats_snap, counts,
             settings.get('pet_name', '边牧'),
             settings.get('pet_personality', '活泼'),
             settings.get('pet_catchphrase', '汪~'),
             date_str,
         )
-        self._diary_worker.result_ready.connect(on_diary_ready)
+        self._diary_worker.result_ready.connect(on_diary_ready, Qt.ConnectionType.QueuedConnection)
         self._diary_worker.error_occurred.connect(
-            lambda msg: self._diary_text.setPlainText(msg)
+            lambda msg: self._diary_text.setPlainText(msg), Qt.ConnectionType.QueuedConnection
         )
+        self._diary_worker.finished.connect(self._finish_diary_generation)
         self._diary_worker.start()
+
+    def _finish_diary_generation(self):
+        worker = self._diary_worker
+        self._diary_worker = None
+        self._diary_generate_btn.setEnabled(True)
+        if worker is not None:
+            worker.deleteLater()
 
     # ─── Tab 7: 设置 ────────────────────────────────────
 

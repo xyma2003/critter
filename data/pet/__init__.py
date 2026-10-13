@@ -1,7 +1,7 @@
 """
 data/pet — PetStats：心情 / 饱食 / 精力数值管理
 """
-from core.state_manager import save_pet_stats, load_pet_stats
+from core.state_manager import save_pet_stats, load_pet_stats, record_pet_interaction
 
 
 class PetStats:
@@ -41,17 +41,17 @@ class PetStats:
     def feed(self):
         self.hunger = self._clamp(self.hunger + 35)
         self.energy = self._clamp(self.energy + 10)
-        self._save()
+        self._save(interaction="feed")
 
     def play(self):
         self.hunger = self._clamp(self.hunger - 10)
         self.energy = self._clamp(self.energy - 15)
         self.mood   = self._clamp(self.mood + 20)   # 玩耍直接拉心情
-        self._save()
+        self._save(interaction="play")
 
     def rest(self):
         self.energy = self._clamp(self.energy + 40)
-        self._save()
+        self._save(interaction="rest")
 
     def on_chat(self):
         """每次对话结束后调用，心情小幅提升。"""
@@ -62,7 +62,7 @@ class PetStats:
         """抚摸：心情 +10，饱食 -5（消耗一点注意力）。"""
         self.mood   = self._clamp(self.mood + 10)
         self.hunger = self._clamp(self.hunger - 5)
-        self._save()
+        self._save(interaction="pet")
 
     def decay(self):
         """定时衰减，由 win.after 调用。"""
@@ -118,12 +118,15 @@ class PetStats:
             return '你现在有点低落，说话简短，偶尔委屈。'
         return '你现在心情很差，说话有气无力，会撒娇说想被陪伴。'
 
-    def _save(self):
-        save_pet_stats(
-            round(self.hunger, 1),
-            round(self.energy, 1),
-            round(self.mood, 1),
-        )
+    def _save(self, interaction=None):
+        stats = {
+            "hunger": round(self.hunger, 1),
+            "energy": round(self.energy, 1),
+            "mood": round(self.mood, 1),
+        }
+        if interaction is not None:
+            return record_pet_interaction(interaction, stats)
+        return save_pet_stats(**stats)
 
 
 # ── 互动台词池（按状态分支）──────────────────────────

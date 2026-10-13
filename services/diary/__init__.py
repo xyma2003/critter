@@ -9,6 +9,7 @@ services/diary — 宠物日记生成服务
 import os
 import subprocess
 import datetime
+from copy import deepcopy
 from config import CLAUDE_CLI
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -20,7 +21,8 @@ class DiaryWorker(QThread):
 
     def __init__(self, stats_snap, counts, pet_name, pet_personality, pet_catchphrase, date_str):
         super().__init__()
-        self._args = (stats_snap, counts, pet_name, pet_personality, pet_catchphrase, date_str)
+        self._args = (deepcopy(stats_snap), deepcopy(counts), pet_name,
+                      pet_personality, pet_catchphrase, date_str)
 
     def run(self):
         try:
@@ -28,53 +30,50 @@ class DiaryWorker(QThread):
             if text:
                 self.result_ready.emit(text)
             else:
-                self.error_occurred.emit("生成失败，请检查 Claude CLI 是否可用。")
+                self.error_occurred.emit("生成失败，请检查 AI 配置与连接后重试。")
         except Exception as e:
             self.error_occurred.emit(f"生成失败: {e}")
 
 
-def generate_diary(stats_snap, counts, pet_name, pet_personality, pet_catchphrase, date_str):
-    """
-    生成宠物视角的每日日记。
-
-    stats_snap: {'mood': float, 'hunger': float, 'energy': float, 'mood_label': str}
-    counts:     {'feed': int, 'play': int, 'rest': int, 'pet': int}
-    返回日记文本字符串，失败返回 None。
-    """
+def build_diary_prompt(stats_snap, counts, pet_name, pet_personality, pet_catchphrase, date_str):
+    """Describe recorded evidence, without inferring an unobserved day's events."""
     # 将日期格式化为可读形式
     try:
         d = datetime.date.fromisoformat(date_str)
-        date_readable = f"{d.month}月{d.day}日"
+        date_readable = f"{d.year}年{d.month}月{d.day}日"
     except Exception:
         date_readable = date_str
 
-    # 组装互动描述
-    interaction_lines = []
-    if counts.get('feed', 0) > 0:
-        interaction_lines.append(f"被喂食了 {counts['feed']} 次")
-    if counts.get('play', 0) > 0:
-        interaction_lines.append(f"玩耍了 {counts['play']} 次")
-    if counts.get('rest', 0) > 0:
-        interaction_lines.append(f"休息了 {counts['rest']} 次")
-    if counts.get('pet', 0) > 0:
-        interaction_lines.append(f"被抚摸了 {counts['pet']} 次")
-
-    if not interaction_lines:
-        interaction_lines.append("今天好像没有太多互动")
-
-    interaction_str = "、".join(interaction_lines)
+    interaction_str = "、".join(
+        f"{label} {counts.get(kind, 0)} 次"
+        for kind, label in (("feed", "喂食"), ("play", "玩耍"),
+                            ("pet", "抚摸"), ("rest", "休息"))
+    )
+    empty_hint = ""
+    if not any(counts.get(kind, 0) for kind in ("feed", "play", "pet", "rest")):
+        empty_hint = "当天未记录到这四类互动。可以写当前感受，不要编造互动经历。\n"
 
     catchphrase_quoted = '\u201c' + pet_catchphrase + '\u201d'
-    prompt = (
+    return (
         f"你是一只名叫{pet_name}的桌面宠物，性格{pet_personality}，"
         f"口头禅是{catchphrase_quoted}。\n"
-        f"今天是{date_readable}，写一条今天的日记（100字以内），"
-        f"用第一人称宠物视角，内容基于：{interaction_str}。"
-        f"当前心情状态：{stats_snap.get('mood_label', '一般')}。\n"
+        f"请为{date_readable}写一条日记（100字以内），用第一人称宠物视角。\n"
+        f"本地已记录的当日互动次数（截至点击生成时）：{interaction_str}。\n"
+        "仅统计喂食、玩耍、抚摸、休息按钮触发的互动；聊天和自动衰减不计入。"
+        "旧版未保存的互动无法补回，未记录不代表没有发生。"
+        "不得编造次数、未记录的活动或具体时间，也不要把零记录写成主人没有陪伴。\n"
+        f"{empty_hint}"
+        f"生成时的当前心情快照：{stats_snap.get('mood_label', '一般')}；"
+        "这不是全天心情变化记录。\n"
         f"语气可爱真实，不要太正式，像宠物在自言自语。"
         f"直接输出日记正文，不加标题、不加日期前缀。"
     )
 
+
+def generate_diary(stats_snap, counts, pet_name, pet_personality, pet_catchphrase, date_str):
+    """Generate from a dated snapshot; return text or None on provider failure."""
+    prompt = build_diary_prompt(stats_snap, counts, pet_name, pet_personality,
+                               pet_catchphrase, date_str)
     # SiliconFlow (OpenAI-compatible) backend — preferred when OPENAI_API_KEY is set
     openai_key = os.environ.get("OPENAI_API_KEY", "")
     if openai_key:
@@ -90,7 +89,7 @@ def generate_diary(stats_snap, counts, pet_name, pet_personality, pet_catchphras
                 max_tokens=200,
                 temperature=0.7,
             )
-            text = resp.choices[0].message.content.strip()
+            text = (resp.choices[0].message.content or "").strip()
             return text if text else None
         except Exception:
             return None
@@ -101,6 +100,8 @@ def generate_diary(stats_snap, counts, pet_name, pet_personality, pet_catchphras
             [CLAUDE_CLI, '--print', prompt],
             capture_output=True, text=True, timeout=30
         )
+        if result.returncode:
+            return None
         text = result.stdout.strip()
         return text if text else None
     except Exception:

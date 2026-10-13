@@ -16,6 +16,7 @@ FIELD_LABELS = {
     "settings": "设置",
     "theme": "主题",
     "pet_stats": "宠物状态",
+    "pet_interactions": "宠物互动记录",
     "timer": "倒计时",
     "news_cache": "新闻缓存",
     "window_position": "窗口位置",

@@ -306,6 +306,95 @@ def load_pet_stats() -> dict | None:
         return None
 
 
+# --- Pet Interactions ---
+
+PET_INTERACTION_KINDS = ("feed", "play", "rest", "pet")
+
+
+def record_pet_interaction(kind: str, stats: dict,
+                           occurred_at: datetime.datetime | None = None) -> bool:
+    """Commit one actual action and its resulting stats together.
+
+    A list deliberately preserves repeated actions, including those occurring
+    at the same instant. The bucket is the date at occurrence, not a date
+    recalculated from today's time zone. Failed writes use the normal pending
+    snapshot, so retrying storage never appends the event again.
+    """
+    if kind not in PET_INTERACTION_KINDS:
+        raise ValueError(f"未知宠物互动：{kind}")
+    if not isinstance(stats, dict):
+        raise TypeError("宠物状态必须是对象")
+    if occurred_at is None:
+        occurred_at = datetime.datetime.now().astimezone()
+    if not isinstance(occurred_at, datetime.datetime):
+        raise TypeError("互动时间必须是 datetime")
+    if occurred_at.tzinfo is None or occurred_at.utcoffset() is None:
+        occurred_at = occurred_at.astimezone()
+    date_str = occurred_at.date().isoformat()
+    event = {"kind": kind, "at": occurred_at.isoformat()}
+
+    with _lock:
+        runtime = _runtime()
+        read_error = None
+        try:
+            state = _read_current(runtime)
+        except OSError as error:
+            read_error = f"无法读取本地数据，已停止写入：{error}"
+            runtime.error = read_error
+            if not runtime.readable:
+                # Without a known snapshot, an empty fallback cannot safely
+                # replace unknown interaction history if the next read works.
+                return False
+            state = runtime.last_good
+        # Read exactly once while locked. A subsequent disk read could recover
+        # after a transient failure and overwrite records absent from our
+        # fallback. Pending snapshots remain the latest known field values.
+        current = deepcopy({**state, **runtime.pending})
+        interactions = current.get("pet_interactions", {})
+        # Do not replace malformed existing data with an empty fallback. Other
+        # dates and unrecognized event entries are retained value-for-value.
+        if (not isinstance(interactions, dict)
+                or (date_str in interactions
+                    and not isinstance(interactions[date_str], list))):
+            runtime.error = "互动记录格式异常，已停止本次写入，原有记录保持不变"
+            return False
+        interactions.setdefault(date_str, []).append(event)
+        runtime.pending.update(deepcopy({"pet_stats": stats, "pet_interactions": interactions}))
+        if read_error is not None:
+            return False
+        return _flush(runtime, state)
+
+
+def load_pet_interactions(date_str: str) -> list:
+    """Return valid evidence for the recorded date without rewriting old data."""
+    interactions = _load_state().get("pet_interactions", {})
+    if not isinstance(interactions, dict):
+        return []
+    events = interactions.get(date_str, [])
+    if not isinstance(events, list):
+        return []
+    result = []
+    for event in events:
+        if not isinstance(event, dict) or event.get("kind") not in PET_INTERACTION_KINDS:
+            continue
+        try:
+            occurred_at = datetime.datetime.fromisoformat(event["at"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (occurred_at.tzinfo is not None and occurred_at.utcoffset() is not None
+                and occurred_at.date().isoformat() == date_str):
+            result.append(event)
+    return result
+
+
+def load_pet_interaction_counts(date_str: str) -> dict:
+    """Count only recorded actions; missing legacy data means four zeros."""
+    counts = dict.fromkeys(PET_INTERACTION_KINDS, 0)
+    for event in load_pet_interactions(date_str):
+        counts[event["kind"]] += 1
+    return counts
+
+
 # --- Notes ---
 
 def save_notes(notes: list) -> bool:
