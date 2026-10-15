@@ -14,6 +14,8 @@ macOS 桌面宠物应用。一只边牧常驻桌面，右键选择“打开面�
 - **日记**：展示当天互动次数，通过 OpenAI-compatible API 或 Claude CLI 生成宠物视角日记，并保存到便签
 - **设置**：宠物名/性格/口头禅、深色/浅色主题
 
+仓库自带可直接播放的基础边牧动画。桌面角色、互动、便签等本地功能无需 API Key；使用 AI 对话和日记生成时再配置模型服务。
+
 ## 前提条件
 
 - **macOS**（`utils/objc.py` 使用 ctypes 调用 libobjc 管理窗口层级）
@@ -89,6 +91,27 @@ python3 -m venv .venv          # 使用 Python 3.10+；已有 .venv 时跳过此
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
+## 桌面角色与动画
+
+| 打盹 | 摇尾 | 提醒 |
+| :---: | :---: | :---: |
+| <img src="assets/animations/border_collie/idle_sleep.gif" width="150" alt="边牧闭眼打盹动画"> | <img src="assets/animations/border_collie/interact_wag.gif" width="150" alt="边牧摇尾眨眼动画"> | <img src="assets/animations/border_collie/alert_run.gif" width="150" alt="边牧快速踏步提醒动画"> |
+
+以上是应用实际加载的资源；程序用 `QMovie` 持续播放透明多帧 GIF。全新检出后无需另行下载或生成素材。
+
+- 待机时每 30 秒在打盹和原地踏步之间随机选择；单击桌宠会短暂洗脸或摇尾，约 2 秒后回到打盹，连续点击会延长互动。
+- 宠物面板的喂食、玩耍、抚摸、休息按钮分别触发洗脸、踏步、摇尾和打盹，原有互动统计仍按每次操作记录一次。直接单击桌面角色只触发动画，不增加面板互动次数。
+- 倒计时结束后，桌宠放大并在屏幕范围内移动，保持提醒动作；**双击桌宠停止提醒**。提醒期间单击、面板互动或待机计时都不会把提醒动画覆盖。
+- 窗口缩放时保持角色比例；某个 GIF 缺失或无法解码时显示备用 emoji 与“动画暂不可用”，悬停可查看原因，其他功能仍可使用。
+
+这套基础角色由项目内的矢量代码绘制，没有使用第三方角色素材，按仓库 MIT 许可分发。[素材来源、许可与重新生成说明](assets/animations/border_collie/README.md)包含完整可编辑脚本；后续可以替换同名 GIF。当前只有这一套基础角色，没有角色商店或在线素材下载。
+
+离线检查动画播放、计时与面板联动：
+
+```bash
+QT_QPA_PLATFORM=offscreen PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m pytest tests/test_pet_animation.py tests/test_pet_panel_animation.py -q
+```
+
 ## 连续聊天与人设
 
 普通 API 聊天、Claude CLI 和 LangGraph Agent 都使用发送时生成的同一份当前会话快照。普通对话与 Agent 可以接续聊天；在设置页保存宠物名字、性格、口头禅后，下一次发送即使用新的人设和当时的宠物状态，已发出的请求不受后续设置修改影响。CLI 会明确传入人设和对话记录，不复用 CLI 的历史 session。
@@ -146,7 +169,7 @@ QT_QPA_PLATFORM=offscreen PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m unittest 
 | 内容 | 位置 |
 | --- | --- |
 | 配置文件 | 当前项目目录下的 `.env`，不会搜索其他目录的同名文件 |
-| 宠物资源 | 当前项目目录下的 `assets/animations/<pet>/<state>.gif`；目前未附带 GIF，缺失时继续显示 emoji |
+| 宠物资源 | 当前项目目录下的 `assets/animations/<pet>/<state>.gif`；已附带 `border_collie` 的 5 种循环动画，缺失或损坏时显示备用 emoji |
 | 默认用户数据 | `~/.desktop-pet-state.json`，与旧版本保持一致 |
 | 自定义用户数据 | 设置 `CRITTER_DATA_DIR` 后，使用该目录下的 `state.json` |
 

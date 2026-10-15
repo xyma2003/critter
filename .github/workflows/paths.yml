@@ -37,5 +37,5 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libegl1
       - name: Install application and test dependencies
         run: python -m pip install -r requirements.txt 'pytest>=8,<10'
-      - name: Verify offline chat and diary adapters, graph and Qt flow
-        run: python -m pytest tests/test_chat_context.py tests/test_agent_context.py tests/test_chat_flow.py tests/test_chat_sessions_ui.py tests/test_diary_flow.py -q
+      - name: Verify offline chat, diary and animated pet Qt flow
+        run: python -m pytest tests/test_chat_context.py tests/test_agent_context.py tests/test_chat_flow.py tests/test_chat_sessions_ui.py tests/test_diary_flow.py tests/test_pet_animation.py tests/test_pet_panel_animation.py -q

@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from config import Config, CLAUDE_CLI
+from core.animation_manager import AnimationState
 from core.state_manager import (
     load_settings, save_settings,
     load_theme, save_theme,
@@ -842,6 +843,7 @@ class MainPanel(QWidget):
         self._update_pet_stats_ui()
         msg = random.choice(lines)
         self._log_pet(msg)
+        self._animate_pet(AnimationState.INTERACT_WASH)
 
     def _pet_play(self):
         lines = PLAY_LINES['bored'] if self.stats.mood < 40 else (
@@ -849,6 +851,7 @@ class MainPanel(QWidget):
         self.stats.play()
         self._update_pet_stats_ui()
         self._log_pet(random.choice(lines))
+        self._animate_pet(AnimationState.IDLE_WALK)
 
     def _pet_pet(self):
         lines = PET_LINES['happy'] if self.stats.mood >= 60 else (
@@ -856,6 +859,7 @@ class MainPanel(QWidget):
         self.stats.pet()
         self._update_pet_stats_ui()
         self._log_pet(random.choice(lines))
+        self._animate_pet(AnimationState.INTERACT_WAG)
 
     def _pet_rest(self):
         lines = REST_LINES['exhausted'] if self.stats.energy < 30 else (
@@ -863,6 +867,11 @@ class MainPanel(QWidget):
         self.stats.rest()
         self._update_pet_stats_ui()
         self._log_pet(random.choice(lines))
+        self._animate_pet(AnimationState.IDLE_SLEEP)
+
+    def _animate_pet(self, state):
+        if self.pet_window is not None:
+            self.pet_window.animation_manager.trigger_interact(state)
 
     def _on_decay_tick(self):
         self.stats.decay()
