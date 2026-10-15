@@ -9,18 +9,18 @@ import os
 import subprocess
 import threading
 import time
+from copy import deepcopy
+from html import escape
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget,
     QPushButton, QLabel, QLineEdit, QTextEdit, QScrollArea,
-    QFrame, QSizePolicy, QProgressBar, QMessageBox,
+    QFrame, QSizePolicy, QProgressBar, QMessageBox, QComboBox,
 )
 
 from config import Config, CLAUDE_CLI
 from core.state_manager import (
-    load_chat_history, save_chat_history,
-    load_chat_sessions, save_chat_sessions,
     load_settings, save_settings,
     load_theme, save_theme,
     load_pet_interaction_counts,
@@ -30,7 +30,10 @@ from data.pet import PetStats, FEED_LINES, PLAY_LINES, REST_LINES, PET_LINES
 from features.base_feature import BaseFeature
 from features.news_push.news_feature import NewsFeature, NewsFetchWorker
 from features.timer.timer_feature import TimerFeature
-from services.chat_history import load_sessions, save_session
+from services.chat_history import (
+    load_sessions, save_session, restore_current_session,
+    activate_session, start_new_session, delete_session,
+)
 from services.chat_context import ChatRequest, build_chat_request, api_messages, cli_prompt
 from services.notes import load_all as load_notes, create as create_note, update as update_note, delete as delete_note
 from services.weather import fetch_weather
@@ -175,12 +178,12 @@ class MainPanel(QWidget):
         self._theme_mode = load_theme()
 
         # 聊天 session
+        self._current_session, self._chat_history = restore_current_session()
         self._sessions = load_sessions()
         self._last_session_id = max(
             (s['id'] for s in self._sessions if isinstance(s.get('id'), int)), default=0)
-        self._current_session: dict | None = None
-        self._chat_history: list = []
         self._chat_generation = 0
+        self._chat_drafts = {}
 
         # AI
         self.agent_graph = None
@@ -396,20 +399,42 @@ class MainPanel(QWidget):
         intro_row.addWidget(intro)
         layout.addLayout(intro_row)
 
+        session_row = QHBoxLayout()
+        session_row.setContentsMargins(24, 6, 24, 4)
+        session_row.setSpacing(8)
+        session_row.addWidget(QLabel("当前对话"))
+        self.session_selector = QComboBox(objectName="chat_session_selector")
+        self.session_selector.setAccessibleName("当前对话")
+        self.session_selector.setMinimumWidth(0)
+        self.session_selector.setMinimumContentsLength(16)
+        self.session_selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.session_selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.session_selector.setMaxVisibleItems(8)
+        self.session_selector.setToolTip(
+            "选择已保存的对话继续聊天。切换不会取消已启动的任务，其迟到回复不再保存。")
+        self.session_selector.currentIndexChanged.connect(self._select_chat_session)
+        self.delete_session_btn = QPushButton("删除对话", objectName="secondary_btn")
+        self.delete_session_btn.clicked.connect(self._delete_chat_session)
+        session_row.addWidget(self.session_selector, 1)
+        session_row.addWidget(self.delete_session_btn)
+        layout.addLayout(session_row)
+        self._session_info = QLabel(objectName="status_label")
+        self._session_info.setTextFormat(Qt.TextFormat.PlainText)
+        self._session_info.setWordWrap(True)
+        self._session_info.setContentsMargins(24, 0, 24, 4)
+        layout.addWidget(self._session_info)
+
         # 聊天列表
         self.chat_list = ChatList()
         layout.addWidget(self.chat_list, 1)
 
         # 恢复历史消息
-        saved = load_chat_history(50)
-        if saved:
-            self._chat_history = list(saved)
-            for msg in saved:
-                self.chat_list.add_message(msg["content"], is_user=(msg["role"] == "user"))
-        else:
-            welcome = f"你好！我是你的桌面边牧，叫{self._app_settings.get('pet_name', '边牧')}~ {self._app_settings.get('pet_catchphrase', '汪~')}"
-            self.chat_list.add_message(welcome)
-            self._record_message(welcome, "pet", include_in_context=False)
+        if not self._chat_history:
+            self._record_message(self._chat_welcome(), "pet", include_in_context=False)
+            start_new_session(self._chat_history)
+        self._render_chat_history()
+        self._refresh_chat_sessions()
 
         # 输入区
         input_frame = QWidget()
@@ -441,6 +466,7 @@ class MainPanel(QWidget):
             QMessageBox.information(self, "暂时无法发送", str(error))
             return
         self.input_box.clear()
+        self._chat_drafts.pop(self._current_session["id"] if self._current_session else None, None)
         self.chat_list.add_message(text, is_user=True)
         self._record_message(text, "user")
         self._save_current_session(text)
@@ -503,21 +529,116 @@ class MainPanel(QWidget):
             "ts": datetime.datetime.now().isoformat(),
             "include_in_context": include_in_context,
         })
-        if len(self._chat_history) > 200:
-            self._chat_history = self._chat_history[-200:]
-        save_chat_history(self._chat_history[-50:])
+        # Stored history is complete. Only the model request builder applies
+        # context limits; the session and compatibility copy are saved together.
 
     def _new_chat_session(self):
-        if self._current_session and self._current_session.get('bubbles'):
-            save_session(self._current_session)
+        self._remember_chat_draft()
         self._chat_generation += 1
-        self._current_session = self._empty_chat_session()
-        self.chat_list.clear_messages()
+        self._current_session = None
         self._chat_history = []
-        # Add welcome message to new session
-        welcome = f"你好！我是你的桌面边牧，叫{self._app_settings.get('pet_name', '边牧')}~ {self._app_settings.get('pet_catchphrase', '汪~')}"
-        self.chat_list.add_message(welcome)
-        self._record_message(welcome, "pet", include_in_context=False)
+        self._record_message(self._chat_welcome(), "pet", include_in_context=False)
+        start_new_session(self._chat_history)
+        self.input_box.clear()
+        self._chat_drafts[None] = ""
+        self._render_chat_history()
+        self._refresh_chat_sessions()
+
+    def _chat_welcome(self):
+        return (f"你好！我是你的桌面边牧，叫{self._app_settings.get('pet_name', '边牧')}~ "
+                f"{self._app_settings.get('pet_catchphrase', '汪~')}")
+
+    def _render_chat_history(self):
+        self.chat_list.clear_messages()
+        for message in self._chat_history:
+            self.chat_list.add_message(message["content"], is_user=message["role"] == "user")
+
+    def _remember_chat_draft(self):
+        key = self._current_session["id"] if self._current_session else None
+        self._chat_drafts[key] = self.input_box.text()
+
+    def _refresh_chat_sessions(self):
+        self._sessions = load_sessions()
+        current_id = self._current_session["id"] if self._current_session else None
+        blocked = self.session_selector.blockSignals(True)
+        try:
+            self.session_selector.clear()
+            self.session_selector.addItem("新对话 · 尚未发送", None)
+            for session in reversed(self._sessions):
+                title = str(session.get("title") or "未命名对话")
+                display = " ".join(title.split())
+                if len(display) > 26:
+                    display = display[:26] + "…"
+                sid = str(session["id"])
+                self.session_selector.addItem(f"{display} · #{sid}", session["id"])
+                self.session_selector.setItemData(
+                    self.session_selector.count() - 1,
+                    f"<qt>{escape(title)}<br/>ID：{escape(sid)}</qt>", Qt.ItemDataRole.ToolTipRole)
+            index = self.session_selector.findData(current_id)
+            self.session_selector.setCurrentIndex(max(index, 0))
+        finally:
+            self.session_selector.blockSignals(blocked)
+        self.delete_session_btn.setEnabled(current_id is not None and index > 0)
+        if current_id is None:
+            self._session_info.setText(f"共 {len(self._sessions)} 个对话 · 发送第一条消息后自动保存")
+        else:
+            self._session_info.setText(
+                f"共 {len(self._sessions)} 个对话 · 当前 {len(self._chat_history)} 条记录")
+
+    def _select_chat_session(self, index):
+        if index < 0:
+            return
+        session_id = self.session_selector.itemData(index)
+        current_id = self._current_session["id"] if self._current_session else None
+        if session_id == current_id:
+            return
+        if session_id is None:
+            draft = self._chat_drafts.get(None, "")
+            self._new_chat_session()
+            self.input_box.setText(draft)
+            return
+        selected = activate_session(session_id)
+        if selected is None:
+            self._refresh_chat_sessions()
+            return
+        self._remember_chat_draft()
+        self._chat_generation += 1
+        self._current_session, self._chat_history = selected
+        self.input_box.setText(self._chat_drafts.get(session_id, ""))
+        self._render_chat_history()
+        self._refresh_chat_sessions()
+
+    def _confirm_delete_session(self, session):
+        dialog = QMessageBox(QMessageBox.Icon.Warning, "删除对话", "", parent=self)
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setText(
+            f"删除对话「{session.get('title') or '未命名对话'}」？\n"
+            f"ID：{session['id']}\n\n"
+            "其中的全部聊天记录将被删除，此操作不可恢复。其他对话不会受影响。")
+        dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+        dialog.button(QMessageBox.StandardButton.Yes).setText("删除对话")
+        dialog.button(QMessageBox.StandardButton.Cancel).setText("取消")
+        dialog.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        dialog.setEscapeButton(QMessageBox.StandardButton.Cancel)
+        return dialog.exec() == QMessageBox.StandardButton.Yes
+
+    def _delete_chat_session(self):
+        if self._current_session is None:
+            return
+        target = deepcopy(self._current_session)
+        if not self._confirm_delete_session(target):
+            return
+        if self._current_session is None or self._current_session["id"] != target["id"]:
+            return
+        self._chat_generation += 1
+        delete_session(target["id"])
+        self._chat_drafts.pop(target["id"], None)
+        self._current_session, self._chat_history = restore_current_session()
+        if not self._chat_history:
+            self._record_message(self._chat_welcome(), "pet", include_in_context=False)
+        self.input_box.clear()
+        self._render_chat_history()
+        self._refresh_chat_sessions()
 
     def _empty_chat_session(self):
         self._last_session_id = max(int(time.time() * 1000), self._last_session_id + 1)
@@ -533,10 +654,12 @@ class MainPanel(QWidget):
                     self._current_session['title'] = msg['content'][:20]
                     break
         if self._chat_history:
+            self._current_session['messages'] = deepcopy(self._chat_history)
             self._current_session['bubbles'] = [
                 [m['role'], m['content']] for m in self._chat_history
             ]
             save_session(self._current_session)
+            self._refresh_chat_sessions()
 
     # ─── Tab 2: 新闻 ────────────────────────────────────
 

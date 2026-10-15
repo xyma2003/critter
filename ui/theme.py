@@ -112,6 +112,21 @@ QLineEdit:disabled, QTextEdit:disabled, QPlainTextEdit:disabled {{
     background-color: {c['bg_nav']};
     color: {c['fg_muted']};
 }}
+QComboBox#chat_session_selector {{
+    background-color: {c['bg_card']};
+    color: {c['fg_main']};
+    border: 1px solid {c['border']};
+    border-radius: 10px;
+    padding: 8px 12px;
+}}
+QComboBox#chat_session_selector:focus {{ border-color: {c['accent']}; }}
+QComboBox#chat_session_selector QAbstractItemView {{
+    background-color: {c['bg_card']};
+    color: {c['fg_main']};
+    border: 1px solid {c['border']};
+    selection-background-color: {c['bg_sel']};
+    selection-color: {c['fg_main']};
+}}
 QPushButton {{
     background-color: {c['accent']};
     color: {c['text_accent']};

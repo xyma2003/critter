@@ -12,6 +12,7 @@ from core import state_manager
 FIELD_LABELS = {
     "chat_history": "聊天记录",
     "chat_sessions": "聊天会话",
+    "active_chat_session_id": "当前对话选择",
     "notes": "便签与日记",
     "settings": "设置",
     "theme": "主题",

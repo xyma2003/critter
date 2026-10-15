@@ -228,11 +228,12 @@ class StorageNoticeTests(unittest.TestCase):
             self.panel._pet_name_input.setText("保存后的小伙伴")
             self.panel._save_settings()
             self.panel._record_message("待保存的聊天消息", "user")
+            self.panel._save_current_session("待保存的聊天消息")
             QTest.qWait(360)
             self.assertTrue(notice.isVisible())
             self.assertTrue(self.panel.isVisible())
             self.assertEqual(set(state_manager.get_storage_status().pending_fields),
-                             {"notes", "settings", "chat_history"})
+                             {"notes", "settings", "chat_history", "chat_sessions", "active_chat_session_id"})
             self.assertTrue(any(label.text() == "未保存的便签"
                                 for label in self.panel._notes_list_widget.findChildren(QLabel)))
             self.assertEqual(self.panel._identity_name.text(), "保存后的小伙伴")
@@ -247,6 +248,8 @@ class StorageNoticeTests(unittest.TestCase):
         self.assertEqual(saved["notes"][0]["title"], "未保存的便签")
         self.assertEqual(saved["settings"]["pet_name"], "保存后的小伙伴")
         self.assertEqual(saved["chat_history"][-1]["content"], "待保存的聊天消息")
+        self.assertEqual(saved["chat_sessions"][0]["messages"][-1]["content"], "待保存的聊天消息")
+        self.assertEqual(saved["active_chat_session_id"], saved["chat_sessions"][0]["id"])
 
     def test_actual_corrupt_backup_stays_on_disk_after_explicit_confirmation(self):
         self.use_real_storage_api()
