@@ -1,286 +1,100 @@
 # Critter
 
-macOS 桌面宠物应用。一只边牧常驻桌面，右键选择“打开面板”进入主面板，包含 AI 对话、热点新闻、宠物互动、便签、天气、日记、设置 7 个 Tab。
+一只住在 macOS 桌面的边牧。陪你聊几句，接住随手记下的灵感，也把今天的互动写成日记。
 
-**Tech stack**: Python 3.11 + PyQt6 (UI) + LangGraph (agent orchestration) + langchain-anthropic (LLM) + requests/BeautifulSoup (news scraping)
+**macOS · Python / PyQt6 · 本地保存 · AI 按需配置**
 
-## 功能（7 Tab）
+[开始使用](#开始使用) · [AI 配置](docs/configuration.md) · [使用与数据](docs/usage-and-storage.md) · [演示与复现](docs/demo.md)
 
-- **聊天（AI 对话）**：气泡聊天，支持连续上下文与自定义宠物人设；可选择、恢复和确认删除已保存会话。关键词触发 LangGraph agent（理解→规划→执行→反思→回复），普通对话按配置使用 OpenAI-compatible API 或 Claude CLI
-- **热点新闻**：抓取百度热搜 / 今日头条热榜，英文标题自动翻译，书签/稍后再看
-- **宠物互动**：心情 / 饱食 / 精力三维状态，喂食、玩耍、抚摸、休息；互动记录按日期保存
-- **便签**：轻量便签，标题 + 内容
-- **天气**：wttr.in 天气查询，多城市管理
-- **日记**：展示当天互动次数，通过 OpenAI-compatible API 或 Claude CLI 生成宠物视角日记，并保存到便签
-- **设置**：宠物名/性格/口头禅、深色/浅色主题
+![Critter 聊天界面：奶油色主面板、已保存会话和连续对话](docs/images/chat.png)
 
-仓库自带可直接播放的基础边牧动画。桌面角色、互动、便签等本地功能无需 API Key；使用 AI 对话和日记生成时再配置模型服务。
+*本文界面图片为真实 Qt 界面渲染，使用合成对话和固定离线回复。它们展示应用流程，不代表真实模型回复效果；[演示说明与复现](docs/demo.md)。*
 
-## 前提条件
+## 桌边多一个小伙伴
 
-- **macOS**（`utils/objc.py` 使用 ctypes 调用 libobjc 管理窗口层级）
-- **Python 3.10+**
-- **LLM API Key**（二选一）：
-  - SiliconFlow（国内推荐，[获取地址](https://cloud.siliconflow.cn/)）
-  - Anthropic（[申请地址](https://console.anthropic.com/)）
-- **[Claude CLI](https://claude.ai/code) 在 PATH 中**（仅 Anthropic 模式需要，日记生成 fallback 会调用；SiliconFlow 模式不需要）
-  - 安装：`npm install -g @anthropic-ai/claude-code`（需 Node.js 18+）
+<img src="assets/animations/border_collie/idle_sleep.gif" width="150" alt="Critter 自带的边牧打盹动画">
 
-## Quick Start
+它会打盹、摇尾，也会回应你的点击。打开宠物面板，可以喂食、玩耍、抚摸或让它休息；每次互动都会留下记录。基础角色动画已经随仓库提供，安装后就能用。
 
-### 1. Clone the repo
+![宠物面板：心情、饱食度、精力和四种互动操作](docs/images/pet.png)
+
+桌面角色、宠物互动、便签和主题设置都不需要模型凭据。右键桌宠，选择“打开面板”，就能开始。
+
+## 聊天可以接着说
+
+配置 AI 后，Critter 会结合当前会话继续回答。你可以给它取名字、调整性格和口头禅，也可以在已保存会话间切换，重启后再接着聊。每次请求使用最近 **20 条消息、12,000 个 Unicode 字符**以内的上下文；保存在本地的完整历史与模型上下文是两回事。
+
+等待回复时，发送按钮会暂停，你仍可编辑下一条草稿。完成或失败后可以继续发送；切换会话时，旧回复不会混入新对话。失败提示不进入模型上下文，CLI 聊天有 120 秒回复等待上限。
+
+[会话恢复、删除、上下文限制与检查](docs/usage-and-storage.md#连续聊天与人设)
+
+## 把今天的小事写进日记
+
+日记页会先列出当天记录的喂食、玩耍、抚摸与休息次数，再用点击生成时的快照请求 AI 写一段宠物视角的日记。生成结果保存到便签，之后可以回看和编辑。
+
+![宠物日记：当天互动计数、本次生成依据和日记正文](docs/images/diary.png)
+
+没有记录时会显示零次，并要求模型不编造互动；当前心情只是生成时的快照。生成需要 AI 配置，旧版本没有保存的活动无法补回。[互动记录与日记依据](docs/usage-and-storage.md#互动记录与日记依据)
+
+## 开始使用
+
+需要 **macOS、Python 3.10+**。先启动本地功能，再决定是否配置 AI：
 
 ```bash
 git clone https://github.com/xyma2003/critter.git
 cd critter
-```
-
-### 2. Create a virtual environment
-
-```bash
 python3 -m venv .venv
-source .venv/bin/activate        # macOS/Linux
-# .venv\Scripts\activate         # Windows
-```
-
-### 3. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Configure API credentials
-
-```bash
-cp .env.example .env
-# Edit .env — fill in ONE backend (see .env.example comments)
-```
-
-**Option A — SiliconFlow / OpenAI-compatible（国内推荐）**：
-- `.env` 文件配置 `OPENAI_API_KEY` + `OPENAI_API_BASE` + `OPENAI_MODEL`
-- 适用于国内环境，无需 VPN
-- 获取 key：https://cloud.siliconflow.cn/
-
-**Option B — Anthropic（海外）**：
-- `ANTHROPIC_API_KEY` 环境变量（或 `.env` 文件）
-- Claude CLI 需在 PATH 中（见前提条件）
-
-`.env` 示例（SiliconFlow）：
-```bash
-OPENAI_API_KEY=sk-...
-OPENAI_API_BASE=https://api.siliconflow.cn/v1
-OPENAI_MODEL=Qwen/Qwen3-32B
-```
-
-> 当 `OPENAI_API_KEY` 设了，agent 和日记生成都走 SiliconFlow；否则 fallback 到 Anthropic + Claude CLI。
-
-### 5. Run
-
-```bash
+.venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python main.py
 ```
 
-也可以在 Finder 中双击 `启动桌面宠物.command`。脚本会自动进入它所在的项目目录，并使用该目录下的 `.venv/bin/python`；项目可以放在包含空格或中文的路径中，双击前无需手动激活虚拟环境。宠物窗口会显示在桌面上；右键点击宠物并选择“打开面板”，即可进入主面板。
+首次启动不需要 `.env` 或 API Key。桌宠出现后，右键选择“打开面板”。完成依赖安装后，也可以在 Finder 双击 `启动桌面宠物.command`；脚本会使用当前项目的 `.venv`，支持中文和空格路径，无需先激活环境。
 
-首次使用需完成上面的依赖安装；使用 AI 功能时再按上文配置凭据。启动脚本会检查 Python 版本和依赖是否存在；环境不完整或程序异常退出时，终端会显示错误和下一步操作，按回车即可关闭。它不会自动安装依赖或更改配置。
+启动脚本会检查 Python 版本与依赖；环境不完整或程序异常退出时，终端会保留错误和下一步操作。它不会自动安装依赖或修改配置。若提示缺少虚拟环境或依赖，重新执行上面的建环境与安装步骤；已有 `.venv` 时跳过创建。
 
-如果提示缺少虚拟环境或依赖，在项目目录运行：
+## 还有这些日常功能
 
-```bash
-python3 -m venv .venv          # 使用 Python 3.10+；已有 .venv 时跳过此行
-.venv/bin/python -m pip install -r requirements.txt
-```
-
-## 桌面角色与动画
-
-| 打盹 | 摇尾 | 提醒 |
-| :---: | :---: | :---: |
-| <img src="assets/animations/border_collie/idle_sleep.gif" width="150" alt="边牧闭眼打盹动画"> | <img src="assets/animations/border_collie/interact_wag.gif" width="150" alt="边牧摇尾眨眼动画"> | <img src="assets/animations/border_collie/alert_run.gif" width="150" alt="边牧快速踏步提醒动画"> |
-
-以上是应用实际加载的资源；程序用 `QMovie` 持续播放透明多帧 GIF。全新检出后无需另行下载或生成素材。
-
-- 待机时每 30 秒在打盹和原地踏步之间随机选择；单击桌宠会短暂洗脸或摇尾，约 2 秒后回到打盹，连续点击会延长互动。
-- 宠物面板的喂食、玩耍、抚摸、休息按钮分别触发洗脸、踏步、摇尾和打盹，原有互动统计仍按每次操作记录一次。直接单击桌面角色只触发动画，不增加面板互动次数。
-- 倒计时结束后，桌宠放大并在屏幕范围内移动，保持提醒动作；**双击桌宠停止提醒**。提醒期间单击、面板互动或待机计时都不会把提醒动画覆盖。
-- 窗口缩放时保持角色比例；某个 GIF 缺失或无法解码时显示备用 emoji 与“动画暂不可用”，悬停可查看原因，其他功能仍可使用。
-
-这套基础角色由项目内的矢量代码绘制，没有使用第三方角色素材，按仓库 MIT 许可分发。[素材来源、许可与重新生成说明](assets/animations/border_collie/README.md)包含完整可编辑脚本；后续可以替换同名 GIF。当前只有这一套基础角色，没有角色商店或在线素材下载。
-
-离线检查动画播放、计时与面板联动：
-
-```bash
-QT_QPA_PLATFORM=offscreen PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m pytest tests/test_pet_animation.py tests/test_pet_panel_animation.py -q
-```
-
-## 连续聊天与人设
-
-普通 API 聊天、Claude CLI 和 LangGraph Agent 都使用发送时生成的同一份当前会话快照。普通对话与 Agent 可以接续聊天；在设置页保存宠物名字、性格、口头禅后，下一次发送即使用新的人设和当时的宠物状态，已发出的请求不受后续设置修改影响。CLI 会明确传入人设和对话记录，不复用 CLI 的历史 session。
-
-对话快照最多包含最近 **20 条消息、12,000 个 Unicode 字符**的连续后缀，按整条消息保留，并移除开头没有对应用户问题的回复。这里统计字符，**不是模型 token**；系统人设及 Agent 当前阶段的执行信息另算。当前输入超过字符上限时会提示缩短，原文保留在输入框中，不会截断后发送。
-
-欢迎语、等待占位符和本版本产生的错误提示不作为模型对话上下文。Agent 的计划、内部分析和工具调用记录与聊天历史分开，仅最终回复写入用户对话；执行报错仍会显示，但不作为下一轮模型上下文。
-
-点击“+ 新对话”会开始独立会话。切换会话不会取消已经启动的任务，旧请求的迟到回复会被丢弃，不再写入任何会话；即使切回原会话，也不会接受之前那次请求的回包。同一会话等待回复时，发送按钮暂停，重复点击或按 Enter 不会启动第二个请求；输入框仍可编辑下一条草稿。当前请求完成或失败后可继续发送，草稿会保留。切换会话后可以发送新请求；旧请求的回复和结束信号都不能解除新请求的忙碌状态。
-
-请求启动失败、空回复或后端错误会替换对应的等待气泡，并允许继续发送；错误文本不进入后续模型上下文，也不计为成功聊天。Claude CLI 单次回复最多等待 120 秒，超时会结束该子进程并显示重试提示。切换会话不等于取消后端任务；目前没有聊天取消按钮。
-
-### 选择、恢复与删除会话
-
-聊天页的“当前对话”选择器列出已保存会话，标题旁的 ID 用于区分同名记录。选择后立即显示该会话的消息，继续发送只使用它自己的上下文；重启会恢复上次选择的会话。未发送的输入在本次运行内按会话暂存，切回时可继续编辑，但不会跨重启保存。
-
-“+ 新对话”在发送第一条消息后加入历史。点击“删除对话”会先确认标题与 ID，默认取消；确认后删除当前会话并返回新对话，其他会话、便签、设置和宠物状态保留。删除最后一条后重启不会重新出现旧消息。删除不可恢复，重要记录请先备份本地状态文件。
-
-会话正文完整保存，不再在续聊时裁掉第 200 条之前的消息，也不会因为会话超过 50 个而自动删除旧会话。模型请求仍受上文的 20 条 / 12,000 字符限制，这与保存多少历史记录是两回事。会话正文、当前选择和兼容旧版的最近消息副本会一起保存；保存失败时沿用“尚未保存”提示与“重试保存”，界面中的变化此时只在当前进程有效。
-
-旧版气泡会话可以打开；只有最近消息副本时也会保留为可继续的会话。能匹配到旧会话末尾时，会补回副本里已有的时间和上下文排除标记；无法唯一匹配时单独保留，避免覆盖旧会话。旧版只记录角色和文字的部分无法还原时间或回复成功状态，按原角色与文字恢复；新版本保存的欢迎语、错误排除标记会在重启和切换后保留。重复旧 ID 会分配新的独立标识，原内容仍保留。
-
-### 离线聊天回归检查
-
-安装项目依赖后运行：
-
-```bash
-QT_QPA_PLATFORM=offscreen PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m unittest tests.test_chat_context tests.test_agent_context tests.test_chat_flow tests.test_chat_sessions tests.test_chat_sessions_ui -v
-```
-
-检查覆盖三条请求链路的角色和人设、上下文裁剪、真实 LangGraph 多节点执行、Qt 会话选择/删除/重启恢复、旧数据迁移、连续发送保护、失败重试与迟到回包隔离，使用临时状态、假模型和假工具，不访问真实用户数据或调用模型/CLI。CI 另在 Python 3.10 和 3.12 验证纯上下文与会话存储，在 Python 3.12 执行 Qt 离线聊天检查。通过这些检查表示请求内容和应用流程符合预期，不代表真实模型回复效果、服务连接或 CLI 登录已经验证。
-
-## 互动记录与日记依据
-
-喂食、玩耍、抚摸和休息每次点击都会记录一次，包括状态已满时的操作；聊天和自动衰减不计入。每条记录保存发生时的本机日期和带时区偏移的时间，同一秒内的多次互动分别保留，并与操作后的宠物状态一起保存。重启后仍可统计当天记录，新一天从当天记录开始统计，不混入前一天的数据。
-
-日记页显示“当天已记录”的四类互动次数；点击生成后，另行显示固定的“本次生成依据”。本次请求使用点击时的日期、次数、宠物人设和当前心情快照，生成过程中继续互动、修改设置或跨过午夜都不会改变它；日记也按点击时的日期保存。生成期间按钮暂停，线程结束后可再次生成；聊天也有独立的请求忙碌控制；两者分别管理。
-
-旧版本只保存宠物状态，无法据此还原互动。没有记录时会明确显示零次，并要求模型只写当前感受，不编造活动、次数或具体时间；未记录不代表没有陪伴，当前心情也不是全天心情变化记录。生成错误或空回复不会新增日记。
-
-互动记录沿用下文的安全保存机制。写入失败时，已记录的操作和状态暂留在当前进程，界面提示“宠物互动记录”尚未保存；重试只保存这些记录，不会再次计数。尚未保存的记录无法在强制退出或断电后恢复。日记页可以使用当前会话中的待保存记录，生成日记并不代表这些记录已经落盘。
-
-### 离线日记回归检查
-
-安装项目依赖后运行：
-
-```bash
-QT_QPA_PLATFORM=offscreen PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m unittest tests.test_pet_activity tests.test_diary_flow -v
-```
-
-检查使用临时状态、Qt 离屏交互和模拟生成服务，覆盖四类互动、同秒多次操作、失败暂存与重试、重启恢复、日期隔离、生成快照和日记保存，不访问真实用户数据或调用模型/CLI。CI 在 Python 3.10 和 3.12 验证互动存储，在 Python 3.12 验证日记界面与请求流程；这些检查不代表真实模型已经遵循全部写作约束或生成效果已经验证。
-
-## 资源与本地数据
-
-项目目录与用户数据分开定位，不受启动时的工作目录影响：
-
-| 内容 | 位置 |
+| 内容 | 使用条件 |
 | --- | --- |
-| 配置文件 | 当前项目目录下的 `.env`，不会搜索其他目录的同名文件 |
-| 宠物资源 | 当前项目目录下的 `assets/animations/<pet>/<state>.gif`；已附带 `border_collie` 的 5 种循环动画，缺失或损坏时显示备用 emoji |
-| 默认用户数据 | `~/.desktop-pet-state.json`，与旧版本保持一致 |
-| 自定义用户数据 | 设置 `CRITTER_DATA_DIR` 后，使用该目录下的 `state.json` |
+| 桌面动画、宠物互动、便签、人设与主题设置 | 本地使用，无需模型凭据 |
+| 回看已保存的聊天与日记 | 本地使用；产生新的 AI 回复需要配置 |
+| 百度热搜、今日头条热榜与原文链接 | 需要网络；不需要模型 Key |
+| 添加城市、查询天气 | 使用 wttr.in，需要网络；不需要模型 Key |
+| AI 聊天、生成日记 | OpenAI-compatible API 或已配置的 Claude CLI |
+| Agent 获取新闻、设置倒计时 | 需要 API 配置；CLI 登录不能替代 Agent API 凭据 |
 
-聊天、便签和日记、宠物状态与互动记录、设置等仍由同一个状态文件保存。设置页会显示本次运行实际使用的文件路径，可选中复制。移动或重新克隆项目不会改变默认数据位置，现有数据不需要迁移。
+当前提供一套基础边牧角色。新闻翻译函数仍为占位，当前没有自动翻译、书签或稍后再看功能。新闻与天气依赖外部服务，可能受上游变化影响。
 
-需要隔离运行时，可在 `.env` 中配置 `CRITTER_DATA_DIR`，也可以在启动时传入：
+## 接入 AI
 
-```bash
-CRITTER_DATA_DIR="$HOME/Library/Application Support/Critter" .venv/bin/python main.py
-```
+普通聊天、Agent 与日记使用的路径有所不同：
 
-目录必须是绝对路径，也支持 `~/...`；相对路径会被明确拒绝，防止切换工作目录后误用另一份数据。父目录在首次保存时创建。启动时显式设置的 `CRITTER_DATA_DIR` 优先于 `.env`，未设置或空值沿用旧版默认位置。
+| 配置 | 普通聊天与日记生成 | 关键词触发的 Agent |
+| --- | --- | --- |
+| `OPENAI_API_KEY`、`OPENAI_API_BASE`、`OPENAI_MODEL` | 使用所配兼容 API | 使用同一 API；模型需支持工具调用 |
+| Claude CLI + `ANTHROPIC_API_KEY` | 使用 CLI | 使用 Anthropic API |
+| 只有 Claude CLI | 可使用 CLI | 仍需另外配置 API |
+| 只有 `ANTHROPIC_API_KEY` | 仍需 CLI 或兼容 API | 使用 Anthropic API |
 
-自定义目录不会自动导入或覆盖默认文件。若想把旧数据转过去：先退出所有 Critter 实例并备份原文件，确认目标目录没有需要保留的 `state.json`，再把备份复制过去并命名为 `state.json`。修改配置、重启后，在设置页核对路径与原有便签、设置；原文件继续保留。取消 `CRITTER_DATA_DIR` 即恢复使用默认位置。
+`OPENAI_API_KEY` 非空时优先选择兼容 API；请求失败不会自动切换供应商。首页与设置页显示的是检测到的本机配置，不代表连接或 CLI 登录已经验证。
 
-旧配置中的 OpenClaw 固定目录和未使用的头像、日志路径常量已移除；本次不会读取或搬动该目录中的文件。
+复制 `.env.example` 前先看[配置说明](docs/configuration.md)。示例默认不启用任何模型，按需要填写；服务可用性、支持的模型和费用以所用供应商为准。
 
-### 保存失败与损坏文件
+## 你的数据放在哪里
 
-保存时先将完整内容写到同目录临时文件，同步后再替换状态文件。写入失败时，上次成功保存的文件仍保留；这次修改留在当前进程内存，界面顶部显示“尚未保存”及具体类别。处理目录权限或磁盘空间问题后，点击“重试保存”，会一并保存所有待保存修改；后续一次成功的保存也会带上这些修改。
+默认保存在 `~/.desktop-pet-state.json`，也可以通过 `CRITTER_DATA_DIR` 指定独立目录。设置页可以查看实际路径；保存失败会提示尚未保存，并提供重试。不要同时启动多个实例修改同一份数据。
 
-待保存修改不保证在强制结束进程或断电后恢复。通过应用正常退出时，会先尝试保存；仍失败则可重试、取消退出或明确选择“不保存并退出”。不要同时运行多个实例编辑同一个状态文件：当前只串行处理同一进程内的写入，未提供跨进程合并。
+[数据位置、迁移、损坏备份与恢复](docs/usage-and-storage.md#资源与本地数据)
 
-若状态文件不是有效的 JSON 对象，Critter 会先在原目录保留一份 `原文件名.corrupt-时间-随机标识.bak`，并持续显示备份提示。首次启动没有可用快照时从空状态继续；若运行中才发现损坏，会保留本次会话中最后读到的数据及待保存修改。备份保存的是原始字节，不代表已修复或恢复其中的数据；查看信息并确认只会关闭提示，不会删除备份。需要手动恢复时，先退出应用，保留当前文件和备份，再修复副本中的 JSON。启动时若现有文件无法读取，或损坏原件无法备份，应用会停止启动并提示重试，避免按空数据覆盖原件。
+## 开发与检查
 
-存储故障检查使用临时文件和故障注入，包含 Qt 离屏启动、退出及界面流程，不访问真实用户数据：
-
-```bash
-.venv/bin/python -m unittest tests.test_state_manager tests.test_application tests.test_storage_notice -v
-```
-
-### 便签标识与旧数据兼容
-
-新便签和日记使用独立的 UUID 标识，更新时间仍保留时间戳。同一秒创建多条记录也可以分别编辑、删除。原本唯一的旧整数 ID 保持不变；首次读取发现重复 ID 时，仅为重复组内各条记录重新分配标识，内容、顺序、日期及其他字段不变。旧的歧义 ID 不再指向其中任何一条，界面会使用修复后的标识。
-
-标识修复沿用上述安全保存机制：写入失败时保留在当前会话，并显示未保存提醒；重试成功后，重启仍使用同一组标识。
+项目使用 PyQt6 构建界面、LangGraph 编排 Agent；应用依赖见 [requirements.txt](requirements.txt)。离线检查使用临时状态与模拟服务，不会调用真实模型。
 
 ```bash
-.venv/bin/python -m unittest tests.test_notes tests.test_notes_panel -v
+.venv/bin/python -m pip install -r requirements.txt 'pytest>=8,<10'
+QT_QPA_PLATFORM=offscreen PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m pytest tests -q
 ```
 
-### 路径与旧数据兼容检查
+测试依赖 `pytest` 需另外安装。检查通过表示所覆盖的流程符合预期，不代表真实模型输出、服务连接或 CLI 认证已经验证。[分项检查与项目结构](docs/usage-and-storage.md)
 
-```bash
-.venv/bin/python -m unittest tests.test_paths -v
-```
-
-检查使用临时项目与合成旧数据，覆盖更换目录、中文及空格路径、配置优先级、重启读写和旧数据保留，不读取真实用户状态或调用模型。
-
-### 启动脚本回归检查
-
-```bash
-python3 tests/test_launcher.py
-```
-
-这组检查使用临时目录和模拟解释器，验证路径、环境选择及失败提示，不会启动桌宠、访问网络或调用模型。
-
-### 主面板检查（无需模型）
-
-```bash
-.venv/bin/python -m unittest tests.test_panel -v
-```
-
-使用临时状态和 Qt 离屏窗口，检查七个页面、最小窗口尺寸、浅深色聊天气泡、长消息与配置说明。不会操作桌面或发起模型请求。主页与设置中的 AI 状态仅表示检测到本机配置，不代表连接或登录已经验证；宠物互动与便签可离线使用。
-
-## 项目结构
-
-```
-Critter/
-├── main.py                    # 入口
-├── 启动桌面宠物.command          # macOS 双击启动脚本
-├── config.py                  # Config 类 + 环境配置
-├── paths.py                   # 项目资源定位 + 兼容旧状态文件的路径解析
-├── core/                      # PyQt6 核心
-│   ├── pet_window.py          # PetWindow 悬浮宠物窗口
-│   ├── main_panel.py          # MainPanel 主面板（7 Tab）
-│   ├── animation_manager.py   # 动画状态机
-│   ├── event_handler.py       # 鼠标拖拽/点击
-│   ├── state_manager.py       # JSON 持久化层
-│   └── greeting.py            # 时间/久别重逢问候
-├── agent/                     # LangGraph Agent
-│   ├── graph.py               # 工作流：understand→plan→execute→reflect→respond
-│   ├── nodes.py               # 各节点 LLM 调用
-│   ├── tools.py               # get_news / set_timer 工具
-│   └── state.py               # AgentState TypedDict
-├── features/                  # 功能插件
-│   ├── base_feature.py        # ABC 基类
-│   ├── news_push/             # 新闻推送
-│   └── timer/                 # 倒计时闹钟
-├── services/                  # 业务服务
-│   ├── weather/               # wttr.in 天气 + 缓存
-│   ├── diary/                 # 基于互动快照的 API / CLI 日记生成
-│   ├── notes/                 # 便签 CRUD
-│   ├── chat_context.py        # 各聊天后端共享的上下文与人设快照
-│   └── chat_history/          # 聊天 session 持久化
-├── data/pet/__init__.py       # PetStats 状态与互动记录
-├── ui/                        # PyQt6 复用组件
-│   ├── theme.py               # 全局 QSS 主题
-│   ├── chat_list.py           # 气泡聊天列表
-│   ├── feature_button.py      # 功能按钮
-│   └── speech_bubble.py       # 宠物头顶气泡
-├── utils/                     # 工具
-│   ├── network.py             # HTTP 封装
-│   ├── objc.py                # macOS Objective-C 桥
-│   ├── screen_utils.py        # 屏幕尺寸
-│   └── translator.py          # 翻译占位
-└── tests/                     # 存储、启动、聊天、日记及离屏界面回归检查
-```
-
-## 依赖
-
-依赖包括：PyQt6, langgraph, langchain-anthropic, langchain-openai, langchain-core, anthropic, requests, beautifulsoup4, lxml, Pillow, python-dotenv。详见 `requirements.txt`。
+代码与仓库自带角色按 [MIT License](LICENSE) 分发。角色由项目内代码绘制，详见[素材来源、许可与生成脚本](assets/animations/border_collie/README.md)。
