@@ -10,6 +10,7 @@ import subprocess
 import threading
 import time
 from copy import deepcopy
+from dataclasses import dataclass
 from html import escape
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
@@ -53,6 +54,8 @@ import random
 
 class ClaudeCliThread(QThread):
     reply_ready = pyqtSignal(str, bool)
+    TIMEOUT_SECONDS = 120
+    CLEANUP_TIMEOUT_SECONDS = 5
 
     def __init__(self, request: ChatRequest):
         super().__init__()
@@ -68,7 +71,15 @@ class ClaudeCliThread(QThread):
                    '--no-session-persistence', '--tools', '', '--strict-mcp-config']
             proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, text=True)
-            output, error = proc.communicate(input=cli_prompt(self.request))
+            try:
+                output, error = proc.communicate(
+                    input=cli_prompt(self.request), timeout=self.TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired as error:
+                self._stop_process(proc)
+                raise RuntimeError(f"CLI 回复超时（{self.TIMEOUT_SECONDS} 秒），请重试") from error
+            except Exception:
+                self._stop_process(proc)
+                raise
             if proc.returncode:
                 raise RuntimeError(f"CLI 退出码 {proc.returncode}：{error.strip()[:500]}")
             if not output.strip():
@@ -76,6 +87,19 @@ class ClaudeCliThread(QThread):
             self.reply_ready.emit(output.strip(), True)
         except Exception as e:
             self.reply_ready.emit(f"呜，出了点小问题：{e}", False)
+
+    def _stop_process(self, proc):
+        """Bound cleanup too: a descendant may still hold an output pipe open."""
+        try:
+            proc.kill()
+            try:
+                proc.communicate(timeout=self.CLEANUP_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                proc.wait(timeout=self.CLEANUP_TIMEOUT_SECONDS)
+        finally:
+            for stream in (proc.stdin, proc.stdout, proc.stderr):
+                if stream is not None:
+                    stream.close()
 
 
 class OpenAIChatThread(QThread):
@@ -137,10 +161,19 @@ class AgentThread(QThread):
                 "status": "planning",
             }
             result = self.agent_graph.invoke(initial_state)
-            final = result["messages"][-1].content if result["messages"] else "执行完成"
-            self.reply_ready.emit(final, True)
+            messages = result.get("messages") or []
+            final = messages[-1].content if messages else ""
+            if not isinstance(final, str) or not final.strip():
+                raise RuntimeError("Agent 没有返回回复")
+            self.reply_ready.emit(final.strip(), True)
         except Exception as e:
             self.reply_ready.emit(f"抱歉，执行出错：{e}", False)
+
+
+@dataclass(eq=False)
+class _PendingChat:
+    generation: int
+    placeholder: object
 
 
 # ─────────────────────────────────────────────────────────
@@ -190,6 +223,7 @@ class MainPanel(QWidget):
         self.agent_graph = None
         self._ai_thread = None
         self._chat_threads = set()
+        self._pending_chat = None
         self._diary_worker = None
         if Config.ENABLE_AI_AGENT:
             try:
@@ -447,15 +481,17 @@ class MainPanel(QWidget):
         self.input_box.setPlaceholderText("想聊些什么？按 Enter 发送")
         self.input_box.returnPressed.connect(self._on_send)
 
-        send_btn = QPushButton("发送")
-        send_btn.setMinimumWidth(80)
-        send_btn.clicked.connect(self._on_send)
+        self.send_btn = QPushButton("发送")
+        self.send_btn.setMinimumWidth(80)
+        self.send_btn.clicked.connect(self._on_send)
 
         input_layout.addWidget(self.input_box, 1)
-        input_layout.addWidget(send_btn)
+        input_layout.addWidget(self.send_btn)
         layout.addWidget(input_frame)
 
     def _on_send(self):
+        if self._pending_chat is not None:
+            return
         text = self.input_box.text().strip()
         if not text:
             return
@@ -472,40 +508,65 @@ class MainPanel(QWidget):
         self._record_message(text, "user")
         self._save_current_session(text)
 
-        # AI 路由
-        if self.agent_graph and any(kw in text for kw in Config.AGENT_TRIGGER_KEYWORDS):
-            placeholder = self.chat_list.add_message("让我想想… 🤔")
-            thread = AgentThread(self.agent_graph, request)
-        else:
-            placeholder = self.chat_list.add_message("…")
-            if os.environ.get("OPENAI_API_KEY"):
+        use_agent = self.agent_graph and any(kw in text for kw in Config.AGENT_TRIGGER_KEYWORDS)
+        placeholder = self.chat_list.add_message("让我想想… 🤔" if use_agent else "…")
+        turn = _PendingChat(self._chat_generation, placeholder)
+        self._set_pending_chat(turn)
+        thread = None
+        try:
+            if use_agent:
+                thread = AgentThread(self.agent_graph, request)
+            elif os.environ.get("OPENAI_API_KEY"):
                 thread = OpenAIChatThread(request)
             else:
                 thread = ClaudeCliThread(request)
-        generation = self._chat_generation
-        self._ai_thread = thread
-        # Switching conversations must not destroy an in-flight QThread. Keep
-        # it alive until Qt's actual finished signal, separate from reply_ready.
-        self._chat_threads.add(thread)
-        thread.reply_ready.connect(
-            lambda response, success, g=generation, bubble=placeholder:
-                self._receive_chat_reply(g, bubble, response, success),
-            Qt.ConnectionType.QueuedConnection)
-        thread.finished.connect(lambda worker=thread: self._release_chat_thread(worker))
-        thread.start()
+            self._ai_thread = thread
+            # Reply completion releases the send lock; Qt's finished signal
+            # releases the strong reference, including after a session switch.
+            self._chat_threads.add(thread)
+            thread.reply_ready.connect(
+                lambda response, success, pending=turn:
+                    self._receive_chat_reply(pending, response, success),
+                Qt.ConnectionType.QueuedConnection)
+            thread.finished.connect(
+                lambda worker=thread, pending=turn: self._release_chat_thread(worker, pending),
+                Qt.ConnectionType.QueuedConnection)
+            thread.start()
+        except Exception as error:
+            self._receive_chat_reply(turn, f"抱歉，无法开始回复：{error}", False)
+            if thread is not None and not getattr(thread, "isRunning", lambda: False)():
+                self._release_chat_thread(thread, turn)
 
-    def _release_chat_thread(self, thread):
+    def _set_pending_chat(self, turn):
+        self._pending_chat = turn
+        self.send_btn.setEnabled(turn is None)
+        self.send_btn.setText("回复中…" if turn is not None else "发送")
+
+    def _invalidate_chat_reply(self):
+        self._chat_generation += 1
+        self._set_pending_chat(None)
+
+    def _release_chat_thread(self, thread, turn):
+        # A worker that exits without emitting a result must not leave an
+        # endless placeholder. Identity checks also ignore old/duplicate exits.
+        if self._pending_chat is turn and turn.generation == self._chat_generation:
+            self._receive_chat_reply(turn, "抱歉，未收到回复，请重试。", False)
+        if thread not in self._chat_threads:
+            return
         self._chat_threads.discard(thread)
         if self._ai_thread is thread:
             self._ai_thread = None
         thread.deleteLater()
 
-    def _receive_chat_reply(self, generation, placeholder, response, success):
-        if generation != self._chat_generation:
+    def _receive_chat_reply(self, turn, response, success):
+        if turn.generation != self._chat_generation or self._pending_chat is not turn:
             return
-        placeholder.update_text(response)
+        if not isinstance(response, str) or not response.strip():
+            response, success = "抱歉，未收到回复，请重试。", False
+        turn.placeholder.update_text(response)
         self.chat_list._scroll_to_bottom()
         self._record_reply(response, success)
+        self._set_pending_chat(None)
 
     def _record_reply(self, response, success=True):
         self._record_message(response, "pet", include_in_context=success)
@@ -535,7 +596,7 @@ class MainPanel(QWidget):
 
     def _new_chat_session(self):
         self._remember_chat_draft()
-        self._chat_generation += 1
+        self._invalidate_chat_reply()
         self._current_session = None
         self._chat_history = []
         self._record_message(self._chat_welcome(), "pet", include_in_context=False)
@@ -603,7 +664,7 @@ class MainPanel(QWidget):
             self._refresh_chat_sessions()
             return
         self._remember_chat_draft()
-        self._chat_generation += 1
+        self._invalidate_chat_reply()
         self._current_session, self._chat_history = selected
         self.input_box.setText(self._chat_drafts.get(session_id, ""))
         self._render_chat_history()
@@ -631,7 +692,7 @@ class MainPanel(QWidget):
             return
         if self._current_session is None or self._current_session["id"] != target["id"]:
             return
-        self._chat_generation += 1
+        self._invalidate_chat_reply()
         delete_session(target["id"])
         self._chat_drafts.pop(target["id"], None)
         self._current_session, self._chat_history = restore_current_session()

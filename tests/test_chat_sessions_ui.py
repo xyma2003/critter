@@ -179,6 +179,44 @@ class ChatSessionsUiTests(unittest.TestCase):
         self.assertEqual(self.panel.input_box.text(), "会话乙未发送的草稿")
         self.assertFalse(any("未发送的草稿" in str(session) for session in load_sessions()))
 
+    def test_selecting_session_releases_old_lock_but_old_signals_cannot_release_new_lock(self):
+        self.make_panel()
+        saved_id = self.complete("保存的会话", "保存的回答")
+        self.panel._new_chat_session()
+        old = self.send("另一场在途问题")
+        self.assertFalse(self.panel.send_btn.isEnabled())
+        self.select(saved_id)
+        self.assertTrue(self.panel.send_btn.isEnabled())
+        current = self.send("继续保存的会话")
+        before = self.state_file.read_bytes()
+        self.reply(old, "切换后到达的过期回复")
+        self.assertEqual(self.state_file.read_bytes(), before)
+        self.assertFalse(self.panel.send_btn.isEnabled())
+        self.assertIs(self.panel._ai_thread, current)
+        self.assertEqual(self.bubble_texts()[-2:], ["继续保存的会话", "…"])
+        self.reply(current, "当前会话的回答")
+        self.assertTrue(self.panel.send_btn.isEnabled())
+
+    def test_sequential_chat_display_storage_and_restart_keep_identical_order(self):
+        self.make_panel()
+        first = self.send("第一问")
+        self.panel.input_box.setText("第二问")
+        self.panel._on_send()
+        self.assertEqual(len(self.workers), 1)
+        self.assertEqual(self.panel.input_box.text(), "第二问")
+        self.reply(first, "第一答")
+        self.panel.send_btn.click()
+        self.reply(self.workers[-1], "第二答")
+        expected = ["第一问", "第一答", "第二问", "第二答"]
+        self.assertEqual(self.bubble_texts()[-4:], expected)
+        session_id = self.panel._current_session["id"]
+        saved = next(session for session in load_sessions() if session["id"] == session_id)
+        self.assertEqual([message["content"] for message in saved["messages"]][-4:], expected)
+        self.reopen_panel()
+        self.assertEqual(self.panel._current_session["id"], session_id)
+        self.assertEqual(self.bubble_texts()[-4:], expected)
+        self.assertTrue(self.panel.send_btn.isEnabled())
+
     def test_restored_welcome_and_failed_reply_remain_visible_but_not_context(self):
         self.make_panel()
         welcome = self.bubble_texts()[0]

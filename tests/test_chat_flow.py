@@ -2,14 +2,16 @@
 
 import json
 import os
+import subprocess
 import tempfile
 import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
+os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QPushButton
@@ -59,6 +61,7 @@ class ChatFlowTests(unittest.TestCase):
             patch("core.main_panel.CLAUDE_CLI", "/missing/offline-test-claude"),
             patch.dict(os.environ, {"OPENAI_API_KEY": "", "ANTHROPIC_API_KEY": ""}),
             patch("socket.socket.connect", side_effect=AssertionError("Network forbidden in chat test")),
+            patch("socket.create_connection", side_effect=AssertionError("Network forbidden in chat test")),
             patch("core.main_panel.subprocess.Popen", side_effect=AssertionError("Real CLI forbidden in chat test")),
         ):
             patcher.start()
@@ -135,11 +138,12 @@ class ChatFlowTests(unittest.TestCase):
         self.assertIsNotNone(popen.call_args.kwargs["stdin"])
         self.assertEqual(json.loads(process.communicate.call_args.kwargs["input"]),
                          api_messages(self.request)[1:])
+        self.assertEqual(process.communicate.call_args.kwargs["timeout"], 120)
         self.assertEqual(replies, [("你叫小林。", True)])
 
     def test_cli_failure_is_marked_unsuccessful(self):
         process = Mock(returncode=2)
-        process.communicate.return_value = ("", "offline test failure")
+        process.communicate.return_value = ("partial stdout must not count as success", "offline test failure")
         worker = ClaudeCliThread(self.request)
         replies = []
         worker.reply_ready.connect(lambda *args: replies.append(args))
@@ -148,6 +152,66 @@ class ChatFlowTests(unittest.TestCase):
         self.assertEqual(len(replies), 1)
         self.assertFalse(replies[0][1])
         self.assertIn("退出码 2", replies[0][0])
+
+    def test_cli_empty_output_and_missing_binary_are_failures(self):
+        process = Mock(returncode=0)
+        process.communicate.return_value = (" \n", "")
+        for outcome in (process, FileNotFoundError("offline missing CLI")):
+            with self.subTest(outcome=type(outcome).__name__):
+                worker = ClaudeCliThread(self.request)
+                replies = []
+                worker.reply_ready.connect(lambda *args: replies.append(args))
+                with patch("core.main_panel.subprocess.Popen") as popen:
+                    if isinstance(outcome, Exception):
+                        popen.side_effect = outcome
+                    else:
+                        popen.return_value = outcome
+                    worker.run()
+                self.assertEqual(len(replies), 1)
+                self.assertFalse(replies[0][1])
+                self.assertTrue(replies[0][0].strip())
+
+    def test_cli_timeout_kills_reaps_and_closes_pipes_with_bounded_cleanup(self):
+        for cleanup_timeout in (False, True):
+            with self.subTest(cleanup_timeout=cleanup_timeout):
+                process = Mock(returncode=None)
+                process.communicate.side_effect = [
+                    subprocess.TimeoutExpired("offline-cli", 120),
+                    subprocess.TimeoutExpired("offline-cli", 5) if cleanup_timeout else ("", ""),
+                ]
+                worker = ClaudeCliThread(self.request)
+                replies = []
+                worker.reply_ready.connect(lambda *args: replies.append(args))
+                with patch("core.main_panel.subprocess.Popen", return_value=process):
+                    worker.run()
+                self.assertEqual(process.communicate.call_args_list, [
+                    call(input=json.dumps(api_messages(self.request)[1:], ensure_ascii=False), timeout=120),
+                    call(timeout=5),
+                ])
+                process.kill.assert_called_once_with()
+                if cleanup_timeout:
+                    process.wait.assert_called_once_with(timeout=5)
+                else:
+                    process.wait.assert_not_called()
+                for stream in (process.stdin, process.stdout, process.stderr):
+                    stream.close.assert_called_once_with()
+                self.assertEqual(len(replies), 1)
+                self.assertFalse(replies[0][1])
+                self.assertIn("超时", replies[0][0])
+
+    def test_cli_communication_exception_also_cleans_up_process(self):
+        process = Mock()
+        process.communicate.side_effect = [OSError("offline broken pipe"), ("", "")]
+        worker = ClaudeCliThread(self.request)
+        replies = []
+        worker.reply_ready.connect(lambda *args: replies.append(args))
+        with patch("core.main_panel.subprocess.Popen", return_value=process):
+            worker.run()
+        process.kill.assert_called_once_with()
+        self.assertEqual(process.communicate.call_args_list[-1], call(timeout=5))
+        self.assertEqual(len(replies), 1)
+        self.assertFalse(replies[0][1])
+        self.assertIn("offline broken pipe", replies[0][0])
 
     def test_openai_receives_structured_roles_and_persona(self):
         client = Mock()
@@ -161,6 +225,24 @@ class ChatFlowTests(unittest.TestCase):
         self.assertEqual(client.chat.completions.create.call_args.kwargs["messages"],
                          api_messages(self.request))
         self.assertEqual(replies, [("你叫小林。", True)])
+
+    def test_openai_empty_and_exception_results_are_failures(self):
+        for outcome in (None, " \n", RuntimeError("offline API failure")):
+            with self.subTest(outcome=outcome):
+                client = Mock()
+                if isinstance(outcome, Exception):
+                    client.chat.completions.create.side_effect = outcome
+                else:
+                    client.chat.completions.create.return_value = SimpleNamespace(
+                        choices=[SimpleNamespace(message=SimpleNamespace(content=outcome))])
+                worker = OpenAIChatThread(self.request)
+                replies = []
+                worker.reply_ready.connect(lambda *args: replies.append(args))
+                with patch("openai.OpenAI", return_value=client):
+                    worker.run()
+                self.assertEqual(len(replies), 1)
+                self.assertFalse(replies[0][1])
+                self.assertTrue(replies[0][0].strip())
 
     def test_agent_receives_separate_clean_execution_state_and_conversation(self):
         graph = Mock()
@@ -179,6 +261,24 @@ class ChatFlowTests(unittest.TestCase):
         self.assertEqual(state["tool_results"], {})
         self.assertEqual(state["steps_completed"], [])
         self.assertEqual(replies, [("你叫小林。", True)])
+
+    def test_agent_empty_and_exception_results_are_failures(self):
+        for outcome in ({"messages": []}, {"messages": [AIMessage(content=" \n")]},
+                        RuntimeError("offline Agent failure")):
+            with self.subTest(outcome=outcome):
+                graph = Mock()
+                if isinstance(outcome, Exception):
+                    graph.invoke.side_effect = outcome
+                else:
+                    graph.invoke.return_value = outcome
+                worker = AgentThread(graph, self.request)
+                replies = []
+                worker.reply_ready.connect(lambda *args: replies.append(args))
+                worker.run()
+                self.assertEqual(len(replies), 1)
+                self.assertFalse(replies[0][1])
+                self.assertTrue(replies[0][0].strip())
+                self.assertNotIn("执行完成", replies[0][0])
 
     def test_second_normal_request_contains_first_answer_and_current_user_once(self):
         self.mock_workers()
@@ -217,6 +317,8 @@ class ChatFlowTests(unittest.TestCase):
         self.panel._pet_personality_input.setText("耐心")
         self.panel._pet_catchphrase_input.setText("慢慢来")
         self.panel._save_settings()
+        self.assertEqual(first.request.system, original_system)
+        self.reply(first, "你好")
         second = self.send("现在呢")
         for phrase in ("团团", "耐心", "慢慢来"):
             self.assertIn(phrase, second.request.system)
@@ -232,6 +334,7 @@ class ChatFlowTests(unittest.TestCase):
         next(button for button in self.panel.findChildren(QPushButton)
              if button.text() == "+ 新对话").click()
         new = self.send("这一场问题")
+        self.assertFalse(self.panel.send_btn.isEnabled())
         self.assertNotEqual(self.panel._current_session["id"], old_id)
         self.assertEqual(self.pairs(new.request), [("user", "这一场问题")])
         before = self.state_file.read_bytes()
@@ -242,24 +345,120 @@ class ChatFlowTests(unittest.TestCase):
         self.assertIn(old, self.panel._chat_threads)
         self.assertIn(new, self.panel._chat_threads)
         self.assertIs(self.panel._ai_thread, new)
+        self.assertFalse(self.panel.send_btn.isEnabled())
         old.finish()
         self.app.processEvents()
         self.assertNotIn(old, self.panel._chat_threads)
         self.assertIn(new, self.panel._chat_threads)
+        self.assertFalse(self.panel.send_btn.isEnabled())
         self.reply(new, "本场回复")
         self.assertIn("本场回复", self.bubble_texts())
         self.assertIn("本场回复", self.state_file.read_text())
         self.assertFalse(self.panel._chat_threads)
         self.assertIsNone(self.panel._ai_thread)
+        self.assertTrue(self.panel.send_btn.isEnabled())
 
-    def test_overlapping_replies_update_their_own_placeholders(self):
+    def test_busy_button_enter_and_direct_send_preserve_draft_without_extra_request(self):
         self.mock_workers()
         self.make_panel()
         first = self.send("第一问")
-        second = self.send("第二问")
-        self.reply(second, "第二答")
+        before = self.state_file.read_bytes()
+        self.assertFalse(self.panel.send_btn.isEnabled())
+        self.assertTrue(self.panel.input_box.isEnabled())
+        self.panel.input_box.setText("  第二问草稿  ")
+        self.panel.send_btn.click()
+        self.panel.input_box.returnPressed.emit()
+        self.panel._on_send()
+        self.assertEqual(len(self.workers), 1)
+        self.assertEqual(self.panel.input_box.text(), "  第二问草稿  ")
+        self.assertEqual(self.state_file.read_bytes(), before)
+        self.assertEqual(self.bubble_texts()[-2:], ["第一问", "…"])
         self.reply(first, "第一答")
-        self.assertEqual(self.bubble_texts()[-4:], ["第一问", "第一答", "第二问", "第二答"])
+        self.assertTrue(self.panel.send_btn.isEnabled())
+        self.assertEqual(self.panel.input_box.text(), "  第二问草稿  ")
+        self.panel.send_btn.click()
+        second = self.workers[-1]
+        self.assertEqual(len(self.workers), 2)
+        self.assertEqual(self.pairs(second.request), [
+            ("user", "第一问"), ("assistant", "第一答"), ("user", "第二问草稿")])
+
+    def test_duplicate_reply_and_old_finished_do_not_release_next_request(self):
+        self.mock_workers()
+        self.make_panel()
+        first = self.send("第一问")
+        with patch.object(self.panel.stats, "on_chat") as on_chat:
+            self.reply(first, "第一答", finish=False)
+            before = self.state_file.read_bytes()
+            self.reply(first, "重复回复", finish=False)
+            self.assertEqual(self.state_file.read_bytes(), before)
+            on_chat.assert_called_once_with()
+            second = self.send("第二问")
+            self.reply(first, "更晚的重复回复")
+            self.assertFalse(self.panel.send_btn.isEnabled())
+            self.assertIs(self.panel._ai_thread, second)
+            self.assertEqual(self.bubble_texts()[-2:], ["第二问", "…"])
+            self.reply(second, "第二答")
+            self.assertTrue(self.panel.send_btn.isEnabled())
+            self.assertEqual(on_chat.call_count, 2)
+
+    def test_worker_finished_without_reply_resolves_placeholder_as_failure(self):
+        self.mock_workers()
+        self.make_panel()
+        worker = self.send("没有回包")
+        with patch.object(self.panel.stats, "on_chat") as on_chat:
+            worker.finish()
+            self.app.processEvents()
+            on_chat.assert_not_called()
+        self.assertIn("未收到回复", self.bubble_texts()[-1])
+        self.assertFalse(self.panel._chat_history[-1]["include_in_context"])
+        self.assertTrue(self.panel.send_btn.isEnabled())
+        self.assertFalse(self.panel._chat_threads)
+        self.assertIsNone(self.panel._ai_thread)
+        self.assertIsNot(self.send("再试一次"), worker)
+
+    def test_empty_success_signal_is_visible_failure_and_allows_retry(self):
+        self.mock_workers()
+        self.make_panel()
+        worker = self.send("空回复")
+        with patch.object(self.panel.stats, "on_chat") as on_chat:
+            self.reply(worker, " \n", True)
+            on_chat.assert_not_called()
+        self.assertIn("未收到回复", self.bubble_texts()[-1])
+        self.assertFalse(self.panel._chat_history[-1]["include_in_context"])
+        self.assertTrue(self.panel.send_btn.isEnabled())
+        retry = self.send("重试")
+        self.assertEqual(self.pairs(retry.request), [("user", "空回复"), ("user", "重试")])
+
+    def test_constructor_failure_resolves_placeholder_and_allows_retry(self):
+        self.make_panel()
+        with patch("core.main_panel.ClaudeCliThread", side_effect=RuntimeError("offline construction failed")), \
+                patch.object(self.panel.stats, "on_chat") as on_chat:
+            self.panel.input_box.setText("创建失败")
+            self.panel._on_send()
+            on_chat.assert_not_called()
+        self.assertIn("offline construction failed", self.bubble_texts()[-1])
+        self.assertFalse(self.panel._chat_history[-1]["include_in_context"])
+        self.assertTrue(self.panel.send_btn.isEnabled())
+        self.assertFalse(self.panel._chat_threads)
+        self.mock_workers()
+        self.assertTrue(self.send("重试创建").started)
+
+    def test_start_failure_resolves_placeholder_and_releases_unstarted_worker(self):
+        self.make_panel()
+        failed = DeferredChat(self.request)
+        with patch("core.main_panel.ClaudeCliThread", return_value=failed), \
+                patch.object(failed, "start", side_effect=RuntimeError("offline start failed")), \
+                patch.object(self.panel.stats, "on_chat") as on_chat:
+            self.panel.input_box.setText("启动失败")
+            self.panel._on_send()
+            on_chat.assert_not_called()
+        self.assertIn("offline start failed", self.bubble_texts()[-1])
+        self.assertFalse(self.panel._chat_history[-1]["include_in_context"])
+        self.assertTrue(self.panel.send_btn.isEnabled())
+        self.assertFalse(self.panel._chat_threads)
+        self.assertIsNone(self.panel._ai_thread)
+        self.mock_workers()
+        self.assertTrue(self.send("重试启动").started)
 
     def test_new_sessions_created_in_same_millisecond_do_not_replace_each_other(self):
         self.mock_workers()
