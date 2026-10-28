@@ -180,6 +180,11 @@ class _PendingChat:
 #  天气后台获取线程
 # ─────────────────────────────────────────────────────────
 
+@dataclass(eq=False, frozen=True)
+class _PendingWeather:
+    city: str
+
+
 class WeatherThread(QThread):
     done = pyqtSignal(object, bool, object)  # data, from_cache, error
 
@@ -189,7 +194,11 @@ class WeatherThread(QThread):
         self.force = force
 
     def run(self):
-        data, from_cache, error = fetch_weather(self.city, self.force)
+        try:
+            data, from_cache, error = fetch_weather(self.city, self.force)
+        except Exception as error:
+            self.done.emit(None, False, f"获取天气失败：{error}")
+            return
         self.done.emit(data, from_cache, error)
 
 
@@ -255,6 +264,9 @@ class MainPanel(QWidget):
             self._weather_cities[0] if self._weather_cities else None
         )
         self._weather_data: dict = {}
+        self._pending_weather = None
+        self._weather_thread = None
+        self._weather_threads = set()
 
         # 状态衰减定时器
         self._decay_timer = QTimer(self)
@@ -1121,13 +1133,45 @@ class MainPanel(QWidget):
             self._select_city(city)
 
     def _select_city(self, city: str):
+        request = _PendingWeather(city)
+        self._pending_weather = request
         self._weather_selected = city
         self._weather_detail.setText(f"⏳ 获取 {city} 天气中…")
-        self._weather_thread = WeatherThread(city)  # 保存引用防止被 GC
-        self._weather_thread.done.connect(self._on_weather_loaded)
-        self._weather_thread.start()
+        thread = None
+        try:
+            thread = WeatherThread(city)
+            self._weather_thread = thread
+            # Each request owns its result. Keep even superseded workers alive
+            # until finished, not merely until their result has been delivered.
+            self._weather_threads.add(thread)
+            thread.done.connect(
+                lambda data, from_cache, error, pending=request:
+                    self._on_weather_loaded(pending, data, from_cache, error),
+                Qt.ConnectionType.QueuedConnection)
+            thread.finished.connect(
+                lambda worker=thread, pending=request:
+                    self._release_weather_thread(worker, pending),
+                Qt.ConnectionType.QueuedConnection)
+            thread.start()
+        except Exception as error:
+            self._on_weather_loaded(request, None, False, f"无法开始获取天气：{error}")
+            if thread is not None and not getattr(thread, "isRunning", lambda: False)():
+                self._release_weather_thread(thread, request)
 
-    def _on_weather_loaded(self, data, from_cache, error):
+    def _release_weather_thread(self, thread, request):
+        if self._pending_weather is request:
+            self._on_weather_loaded(request, None, False, "未收到天气数据，请重新选择城市重试。")
+        if thread not in self._weather_threads:
+            return
+        self._weather_threads.discard(thread)
+        if self._weather_thread is thread:
+            self._weather_thread = None
+        thread.deleteLater()
+
+    def _on_weather_loaded(self, request, data, from_cache, error):
+        if self._pending_weather is not request:
+            return
+        self._pending_weather = None
         if error:
             self._weather_detail.setText(f"❌ {error}")
             return
@@ -1136,7 +1180,7 @@ class MainPanel(QWidget):
             return
 
         lines = [
-            f"📍 {self._weather_selected}",
+            f"📍 {request.city}",
             f"{data.get('desc_zh','--')}  {data.get('temp_C','--')}°C",
             f"体感 {data.get('feels_like_C','--')}°C",
             "",
