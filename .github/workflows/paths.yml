@@ -38,4 +38,4 @@ jobs:
       - name: Install application and test dependencies
         run: python -m pip install -r requirements.txt 'pytest>=8,<10'
       - name: Verify offline chat, diary, weather and animated pet Qt flow
-        run: python -m pytest tests/test_chat_context.py tests/test_agent_context.py tests/test_chat_flow.py tests/test_chat_sessions_ui.py tests/test_diary_flow.py tests/test_pet_animation.py tests/test_pet_panel_animation.py tests/test_weather_flow.py -q
+        run: python -m pytest tests/test_chat_context.py tests/test_agent_context.py tests/test_chat_flow.py tests/test_chat_sessions_ui.py tests/test_diary_flow.py tests/test_pet_animation.py tests/test_pet_panel_animation.py tests/test_weather_flow.py tests/test_news_flow.py -q

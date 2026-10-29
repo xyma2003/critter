@@ -244,6 +244,9 @@ class MainPanel(QWidget):
         # 功能插件
         self._features: list[BaseFeature] = []
         self._news_feature = NewsFeature()
+        self._pending_news = None
+        self._news_worker = None
+        self._news_workers = set()
         self._timer_feature = TimerFeature()
         self._timer_feature.pet_window_ref = pet_window
         self._features.append(self._news_feature)
@@ -760,6 +763,9 @@ class MainPanel(QWidget):
         layout.addWidget(self._news_scroll, 1)
 
     def _refresh_news(self):
+        request = object()
+        self._pending_news = request
+        self._news_worker = None
         # 清空
         while self._news_layout.count():
             item = self._news_layout.takeAt(0)
@@ -772,12 +778,47 @@ class MainPanel(QWidget):
 
         # 后台获取 — must use QThread + pyqtSignal, NOT threading.Thread + QTimer.singleShot
         # (QTimer from a bg thread without event loop never fires)
-        self._news_worker = NewsFetchWorker(self._news_feature)
-        self._news_worker.result_ready.connect(
-            lambda result: self._render_news_cards(result.get('data', []), result.get('success', False))
-        )
-        self._news_worker.error_occurred.connect(self._render_news_error)
-        self._news_worker.start()
+        worker = None
+        try:
+            worker = NewsFetchWorker(self._news_feature)
+            self._news_worker = worker
+            # A result completes the request, but the worker remains alive until
+            # finished. Superseded requests still own their running workers.
+            self._news_workers.add(worker)
+            worker.result_ready.connect(
+                lambda result, pending=request: self._on_news_loaded(pending, result),
+                Qt.ConnectionType.QueuedConnection)
+            worker.error_occurred.connect(
+                lambda error, pending=request: self._on_news_loaded(pending, None, error),
+                Qt.ConnectionType.QueuedConnection)
+            worker.finished.connect(
+                lambda current=worker, pending=request: self._release_news_worker(current, pending),
+                Qt.ConnectionType.QueuedConnection)
+            worker.start()
+        except Exception as error:
+            self._on_news_loaded(request, None, f"无法开始获取新闻：{error}")
+            if worker is not None and not getattr(worker, "isRunning", lambda: False)():
+                self._release_news_worker(worker, request)
+
+    def _on_news_loaded(self, request, result, error=None):
+        if self._pending_news is not request:
+            return
+        self._pending_news = None
+        if error is not None:
+            self._render_news_error(error or "获取新闻失败，请重新刷新。")
+            return
+        result = result or {}
+        self._render_news_cards(result.get('data', []), result.get('success', False))
+
+    def _release_news_worker(self, worker, request):
+        if self._pending_news is request:
+            self._on_news_loaded(request, None, "未收到新闻数据，请重新刷新。")
+        if worker not in self._news_workers:
+            return
+        self._news_workers.discard(worker)
+        if self._news_worker is worker:
+            self._news_worker = None
+        worker.deleteLater()
 
     def _render_news_error(self, msg: str):
         """Show an error message in the news panel when fetch fails."""
