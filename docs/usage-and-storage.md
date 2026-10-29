@@ -53,6 +53,8 @@ QT_QPA_PLATFORM=offscreen PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m pytest te
 
 请求启动失败、空回复或后端错误会替换对应的等待气泡，并允许继续发送；错误文本不进入后续模型上下文，也不计为成功聊天。Claude CLI 单次回复最多等待 120 秒，超时会结束该子进程并显示重试提示。切换会话不等于取消后端任务；目前没有聊天取消按钮。
 
+消息追加或回复更新后，聊天列表会稍后滚到最新内容；连续更新合并为一次滚动。聊天控件销毁时，待执行的滚动也会停止。普通关闭面板只是隐藏，重新打开仍可继续使用。
+
 ### 选择、恢复与删除会话
 
 聊天页的“当前对话”选择器列出已保存会话，标题旁的 ID 用于区分同名记录。选择后立即显示该会话的消息，继续发送只使用它自己的上下文；重启会恢复上次选择的会话。未发送的输入在本次运行内按会话暂存，切回时可继续编辑，但不会跨重启保存。
@@ -68,10 +70,10 @@ QT_QPA_PLATFORM=offscreen PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m pytest te
 安装项目依赖后运行：
 
 ```bash
-QT_QPA_PLATFORM=offscreen PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m unittest tests.test_chat_context tests.test_agent_context tests.test_chat_flow tests.test_chat_sessions tests.test_chat_sessions_ui -v
+QT_QPA_PLATFORM=offscreen PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m unittest tests.test_chat_context tests.test_agent_context tests.test_chat_flow tests.test_chat_sessions tests.test_chat_sessions_ui tests.test_chat_scroll -v
 ```
 
-检查覆盖三条请求链路的角色和人设、上下文裁剪、真实 LangGraph 多节点执行、Qt 会话选择/删除/重启恢复、旧数据迁移、连续发送保护、失败重试与迟到回包隔离，使用临时状态、假模型和假工具，不访问真实用户数据或调用模型/CLI。CI 另在 Python 3.10 和 3.12 验证纯上下文与会话存储，在 Python 3.12 执行 Qt 离线聊天检查。通过这些检查表示请求内容和应用流程符合预期，不代表真实模型回复效果、服务连接或 CLI 登录已经验证。
+检查覆盖三条请求链路的角色和人设、上下文裁剪、真实 LangGraph 多节点执行、Qt 会话选择/删除/重启恢复、旧数据迁移、连续发送保护、失败重试与迟到回包隔离，以及消息滚动和控件销毁，使用临时状态、假模型和假工具，不访问真实用户数据或调用模型/CLI。CI 另在 Python 3.10 和 3.12 验证纯上下文与会话存储，在 Python 3.12 执行 Qt 离线聊天检查。通过这些检查表示请求内容和应用流程符合预期，不代表真实模型回复效果、服务连接或 CLI 登录已经验证。
 
 ## 天气请求与离线检查
 

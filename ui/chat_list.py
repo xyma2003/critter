@@ -61,6 +61,10 @@ class ChatList(QScrollArea):
 
         self.setWidget(self._container)
         self._bubbles: list[BubbleLabel] = []
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.setSingleShot(True)
+        self._scroll_timer.setInterval(50)
+        self._scroll_timer.timeout.connect(self._apply_scroll)
 
     def add_message(self, message: str, is_user: bool = False) -> BubbleLabel:
         bubble = BubbleLabel(message, is_user)
@@ -85,6 +89,8 @@ class ChatList(QScrollArea):
         self._bubbles.clear()
 
     def _scroll_to_bottom(self):
-        QTimer.singleShot(50, lambda: self.verticalScrollBar().setValue(
-            self.verticalScrollBar().maximum()
-        ))
+        self._scroll_timer.start()
+
+    def _apply_scroll(self):
+        bar = self.verticalScrollBar()
+        bar.setValue(bar.maximum())
